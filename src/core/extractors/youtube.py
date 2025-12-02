@@ -116,16 +116,20 @@ class YouTubeExtractor:
     ) -> tuple[list[TranscriptSegment], str, bool]:
         """Get video transcript. Returns (segments, full_text, has_transcript)."""
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(
-                video_id, languages=["en", "en-US", "en-GB"]
-            )
+            # youtube-transcript-api v1.x uses instance method .fetch()
+            api = YouTubeTranscriptApi()
+            transcript_data = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+
+            # Convert to our segment format
             segments = [
                 TranscriptSegment(
-                    text=item["text"], start=item["start"], duration=item["duration"]
+                    text=snippet.text,
+                    start=snippet.start,
+                    duration=snippet.duration
                 )
-                for item in transcript_list
+                for snippet in transcript_data
             ]
-            full_text = " ".join(item["text"] for item in transcript_list)
+            full_text = " ".join(snippet.text for snippet in transcript_data)
             return segments, full_text, True
         except (NoTranscriptFound, TranscriptsDisabled) as e:
             logger.warning(f"No transcript available for {video_id}: {e}")
