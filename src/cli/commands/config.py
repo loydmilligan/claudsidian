@@ -179,8 +179,19 @@ def init() -> None:
         "Enter the absolute path to your Obsidian vault",
         type=str
     )
-    # Normalize the path - handle Windows and Unix paths
-    vault_path = str(Path(vault_path_input.strip().strip('"').strip("'")).expanduser().resolve())
+    # Clean up the input
+    vault_path_input = vault_path_input.strip().strip('"').strip("'")
+
+    # Handle Windows paths in WSL - convert C:\... to /mnt/c/...
+    if len(vault_path_input) >= 2 and vault_path_input[1] == ':':
+        # Windows absolute path detected (e.g., C:\Users\...)
+        drive_letter = vault_path_input[0].lower()
+        rest_of_path = vault_path_input[2:].replace('\\', '/')
+        vault_path = f"/mnt/{drive_letter}{rest_of_path}"
+        click.echo(f"Converted Windows path to WSL: {vault_path}")
+    else:
+        # Unix path - normalize it
+        vault_path = str(Path(vault_path_input).expanduser().resolve())
 
     # Verify the path exists
     if not Path(vault_path).is_dir():
