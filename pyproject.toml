@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claudsidian"
+version = "0.1.0"
+description = "AI-powered knowledge capture tool for Obsidian"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Claudsidian Team" }
+]
+keywords = ["obsidian", "knowledge-management", "ai", "note-taking"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "httpx>=0.25.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "anthropic>=0.7.0",
+    "openai>=1.3.0",
+    "readability-lxml>=0.8.1",
+    "yt-dlp>=2023.11.0",
+    "youtube-transcript-api>=0.6.1",
+    "beautifulsoup4>=4.12.0",
+    "watchdog>=3.0.0",
+    "click>=8.1.0",
+    "pydantic>=2.5.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+claudsidian = "src.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/claudsidian/claudsidian"
+Repository = "https://github.com/claudsidian/claudsidian"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

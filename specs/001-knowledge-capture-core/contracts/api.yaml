@@ -1,0 +1,251 @@
+openapi: 3.1.0
+info:
+  title: Claudsidian Local API
+  description: Local HTTP API for Claudsidian knowledge capture
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8765
+    description: Local development server
+
+paths:
+  /capture:
+    post:
+      summary: Capture a URL
+      description: Submit a URL for capture and processing
+      operationId: captureUrl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureRequest'
+      responses:
+        '200':
+          description: Capture successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureResponse'
+        '202':
+          description: Capture queued (async processing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Duplicate URL (note already exists)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateResponse'
+
+  /status:
+    get:
+      summary: Server status
+      description: Check if server is running and configured
+      operationId: getStatus
+      responses:
+        '200':
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /queue:
+    get:
+      summary: List queued captures
+      description: Get all pending captures in the queue
+      operationId: listQueue
+      responses:
+        '200':
+          description: Queue list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QueueItem'
+
+  /queue/{id}:
+    delete:
+      summary: Remove from queue
+      description: Remove a capture from the queue
+      operationId: removeFromQueue
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Removed successfully
+        '404':
+          description: Queue item not found
+
+  /queue/retry:
+    post:
+      summary: Retry failed captures
+      description: Retry all failed captures in the queue
+      operationId: retryQueue
+      responses:
+        '200':
+          description: Retry initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  retrying:
+                    type: integer
+                    description: Number of items being retried
+
+components:
+  schemas:
+    CaptureRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL to capture
+          example: "https://example.com/article"
+        source:
+          type: string
+          enum: [browser, cli, inbox, android]
+          default: browser
+          description: Where the request originated
+        force_type:
+          type: string
+          enum: [article, video, repo, news, walkthrough, printable]
+          description: Override auto-detection of content type
+
+    CaptureResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        note_path:
+          type: string
+          description: Path to created note in vault
+          example: "Learning/introduction-to-python.md"
+        title:
+          type: string
+          description: Note title
+          example: "Introduction to Python"
+        tags:
+          type: array
+          items:
+            type: string
+          description: Generated tags
+          example: ["python", "tutorial", "programming"]
+        content_type:
+          type: string
+          enum: [article, video, repo, news, walkthrough, printable]
+          description: Detected content type
+
+    QueuedResponse:
+      type: object
+      properties:
+        queued:
+          type: boolean
+          example: true
+        queue_id:
+          type: string
+          format: uuid
+          description: ID to track queued capture
+        message:
+          type: string
+          example: "Capture queued for processing"
+
+    DuplicateResponse:
+      type: object
+      properties:
+        duplicate:
+          type: boolean
+          example: true
+        existing_note:
+          type: string
+          description: Path to existing note
+          example: "Learning/introduction-to-python.md"
+        message:
+          type: string
+          example: "Note already exists for this URL"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          example: true
+        message:
+          type: string
+          description: Error description
+          example: "Invalid URL format"
+        code:
+          type: string
+          description: Error code for programmatic handling
+          example: "INVALID_URL"
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, error]
+          example: ok
+        version:
+          type: string
+          example: "1.0.0"
+        vault_path:
+          type: string
+          description: Configured vault path
+          example: "/home/user/Obsidian/MyVault"
+        apis:
+          type: object
+          properties:
+            claude:
+              type: boolean
+              description: Claude API configured
+            openrouter:
+              type: boolean
+              description: OpenRouter API configured
+
+    QueueItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        source:
+          type: string
+          enum: [browser, cli, inbox, android]
+        status:
+          type: string
+          enum: [pending, processing, failed, completed]
+        attempts:
+          type: integer
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
