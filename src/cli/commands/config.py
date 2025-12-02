@@ -175,11 +175,19 @@ def init() -> None:
 
     # Prompt for vault path
     click.echo(click.style("Obsidian Vault:", bold=True))
-    vault_path = click.prompt(
+    vault_path_input = click.prompt(
         "Enter the absolute path to your Obsidian vault",
-        type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True)
+        type=str
     )
-    vault_path = str(Path(vault_path).expanduser().resolve())
+    # Normalize the path - handle Windows and Unix paths
+    vault_path = str(Path(vault_path_input.strip().strip('"').strip("'")).expanduser().resolve())
+
+    # Verify the path exists
+    if not Path(vault_path).is_dir():
+        click.echo(click.style(f"Error: Directory does not exist: {vault_path}", fg="red"), err=True)
+        return
+
+    click.echo(f"Using vault path: {vault_path}")
     click.echo()
 
     # Prompt for API keys
