@@ -112,11 +112,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T044 [US3] Implement YouTube extractor in src/core/extractors/youtube.py (yt-dlp for metadata: title, channel, duration, description)
-- [ ] T045 [US3] Implement transcript extraction in src/core/extractors/youtube.py (youtube-transcript-api with timestamp preservation)
-- [ ] T046 [US3] Implement AI prompt for video summarization with timestamps in src/core/ai/prompts.py
-- [ ] T047 [US3] Implement chapter detection logic in src/core/extractors/youtube.py (from description or AI-generated sections for long videos)
-- [ ] T048 [US3] Update video.md template in src/core/vault/templates/video.md (embedded link, chapter markers, timestamps)
+- [x] T044 [US3] Implement YouTube extractor in src/core/extractors/youtube.py (yt-dlp for metadata: title, channel, duration, description)
+- [x] T045 [US3] Implement transcript extraction in src/core/extractors/youtube.py (youtube-transcript-api with timestamp preservation)
+- [x] T046 [US3] Implement AI prompt for video summarization with timestamps in src/core/ai/prompts.py
+- [x] T047 [US3] Implement chapter detection logic in src/core/extractors/youtube.py (from description or AI-generated sections for long videos)
+- [x] T048 [US3] Update video.md template in src/core/vault/templates/video.md (embedded link, chapter markers, timestamps)
 
 **Checkpoint**: User Story 3 complete - can capture YouTube videos with transcripts
 

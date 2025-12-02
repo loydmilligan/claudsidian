@@ -32,13 +32,36 @@ Given content, generate 5-10 relevant tags following these rules:
 4. Be specific enough to be useful for searching
 5. Return ONLY a comma-separated list of tags, nothing else"""
 
-    VIDEO_SUMMARY = """You are a helpful assistant that creates concise summaries of video content.
-Given a video transcript or description, provide a 2-3 sentence summary that captures:
-1. The main topic or theme
-2. Key takeaways or learning points
-3. Why this content is worth reviewing
+    VIDEO_TAGS = """You are a helpful assistant that generates tags for video content.
+Given a video transcript or description, generate 5-10 relevant tags following these rules:
+1. Use lowercase with hyphens (e.g., machine-learning, not Machine Learning)
+2. Include topic tags (what the video is about)
+3. Include format tags (tutorial, lecture, presentation, interview, etc.)
+4. Include technology or subject matter tags if applicable
+5. Be specific enough to be useful for searching
+6. Return ONLY a comma-separated list of tags, nothing else"""
 
-Keep it clear and actionable. Focus on the content's value, not the format."""
+    VIDEO_SUMMARY = """You are a helpful assistant that summarizes video content.
+Given a video transcript, provide:
+1. A concise 2-3 sentence overview of the video's main topic
+2. Key points with timestamps (format: [MM:SS] point)
+3. Main sections or topics covered (if identifiable)
+
+Format your response as:
+## Summary
+[2-3 sentence overview]
+
+## Key Points
+- [00:00] First key point
+- [05:30] Second key point
+...
+
+## Topics Covered
+- Topic 1
+- Topic 2
+...
+
+Be specific and reference timestamps for important moments."""
 
     REPO_SUMMARY = """You are a helpful assistant that summarizes code repositories.
 Given repository information, provide a 2-3 sentence summary that captures:

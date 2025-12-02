@@ -35,21 +35,48 @@ YOUTUBE_TEMPLATE = """---
 title: "{{ title }}"
 source: "{{ source_url }}"
 channel: "{{ channel }}"
+{% if duration -%}
+duration: {{ duration }}
+{% endif -%}
 captured: {{ date_captured }}
 tags: {{ tags }}
 type: video
+{% if has_transcript -%}
+has_transcript: {{ has_transcript }}
+{% endif -%}
 ---
 
 # {{ title }}
 
 > {{ summary }}
 
-## Video Details
-- **Channel:** {{ channel }}
-- **URL:** [Watch on YouTube]({{ source_url }})
+## Video
+[![{{ title }}]({{ thumbnail_url }})]({{ source_url }})
 
+**Channel**: [{{ channel }}]({{ channel_url }})
+{% if duration_formatted -%}
+**Duration**: {{ duration_formatted }}
+{% endif -%}
+{% if upload_date -%}
+**Uploaded**: {{ upload_date }}
+{% endif -%}
+
+{% if chapters -%}
+## Chapters
+{% for chapter in chapters -%}
+- [{{ chapter.timestamp }}]({{ source_url }}&t={{ chapter.start_time }}) {{ chapter.title }}
+{% endfor -%}
+{% endif -%}
+
+{% if key_points -%}
+## Key Points
+{{ key_points }}
+{% endif -%}
+
+{% if transcript_summary -%}
 ## Transcript Summary
 {{ transcript_summary }}
+{% endif -%}
 
 ## Related
 {{ backlinks }}
