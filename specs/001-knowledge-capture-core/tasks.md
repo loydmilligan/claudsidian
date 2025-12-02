@@ -76,6 +76,7 @@
 - [x] T031b [US1] Implement HTTP error handling in src/core/capture.py (handle 404, 403, redirects; skip note creation on unrecoverable errors)
 - [x] T032 [US1] Implement FastAPI server in src/server/app.py (basic setup with CORS for localhost)
 - [x] T033 [US1] Implement POST /capture endpoint in src/server/routes/capture.py (accept URL, return note path)
+- [x] T033a [US1] Wire /capture endpoint to CaptureService (was placeholder, now calls actual capture logic)
 - [x] T034 [US1] Implement GET /status endpoint in src/server/routes/status.py (return config status)
 - [x] T035 [US1] Implement `claudsidian serve` command in src/cli/commands/serve.py (start FastAPI server)
 - [x] T036 [P] [US1] Create browser extension manifest.json in browser-extension/ (Manifest V3, Chrome/Firefox compatible)
@@ -117,6 +118,7 @@
 - [x] T046 [US3] Implement AI prompt for video summarization with timestamps in src/core/ai/prompts.py
 - [x] T047 [US3] Implement chapter detection logic in src/core/extractors/youtube.py (from description or AI-generated sections for long videos)
 - [x] T048 [US3] Update video.md template in src/core/vault/templates/video.md (embedded link, chapter markers, timestamps)
+- [x] T048a [US3] Integrate YouTube extractor into capture.py (_fetch_video_content, _format_video_content methods)
 
 **Checkpoint**: User Story 3 complete - can capture YouTube videos with transcripts
 
@@ -135,6 +137,8 @@
 - [ ] T051 [US4] Implement AI prompt for repo summarization in src/core/ai/prompts.py (purpose, tech stack, key features)
 - [ ] T052 [US4] Implement tech tag extraction in src/core/extractors/github.py (from topics, language, detected frameworks)
 - [ ] T053 [US4] Update repo.md template in src/core/vault/templates/repo.md (star count, language badge, tech tags)
+- [ ] T053a [US4] Integrate GitHub extractor into capture.py (_fetch_repo_content, _format_repo_content methods)
+- [ ] T053b [US4] Verify GitHub capture end-to-end (test with real repo URL)
 
 **Checkpoint**: User Story 4 complete - can capture GitHub repos
 
@@ -152,6 +156,8 @@
 - [ ] T055 [US5] Implement news domain detection in src/core/content_type.py (list of known news domains: CNN, BBC, Reuters, etc.)
 - [ ] T056 [US5] Implement AI prompt for news summarization in src/core/ai/prompts.py (key facts extraction, source credibility note)
 - [ ] T057 [US5] Update news.md template in src/core/vault/templates/news.md (date-prefixed filename, publication date, source)
+- [ ] T057a [US5] Integrate News extractor into capture.py (_fetch_news_content, _format_news_content methods)
+- [ ] T057b [US5] Verify News capture end-to-end (test with real news URL)
 
 **Checkpoint**: User Story 5 complete - can capture news articles
 
@@ -169,6 +175,8 @@
 - [ ] T059 [US6] Implement walkthrough detection in src/core/content_type.py (keywords: "how to", "tutorial", "guide", "step by step")
 - [ ] T060 [US6] Implement AI prompt for step extraction in src/core/ai/prompts.py (prerequisites, numbered steps, warnings, code blocks)
 - [ ] T061 [US6] Update walkthrough.md template in src/core/vault/templates/walkthrough.md (difficulty, estimated time, prerequisites section)
+- [ ] T061a [US6] Integrate Walkthrough extractor into capture.py (_fetch_walkthrough_content, _format_walkthrough_content methods)
+- [ ] T061b [US6] Verify Walkthrough capture end-to-end (test with real tutorial URL)
 
 **Checkpoint**: User Story 6 complete - can capture walkthroughs
 
@@ -224,6 +232,8 @@
 - [ ] T075 [US9] Implement printable domain detection in src/core/content_type.py (thingiverse.com, printables.com, cults3d.com)
 - [ ] T076 [US9] Implement print settings extraction in src/core/extractors/printable.py (material, layer height, supports from page metadata)
 - [ ] T077 [US9] Update printable.md template in src/core/vault/templates/printable.md (file types, print settings, creator link)
+- [ ] T077a [US9] Integrate Printable extractor into capture.py (_fetch_printable_content, _format_printable_content methods)
+- [ ] T077b [US9] Verify 3D model capture end-to-end (test with real Thingiverse URL)
 
 **Checkpoint**: User Story 9 complete - can capture 3D models
 

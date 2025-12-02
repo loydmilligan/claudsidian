@@ -11,8 +11,14 @@ The endpoint supports multiple response types:
 - ErrorResponseBody: Error during capture
 """
 
-from fastapi import APIRouter, HTTPException, status
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, status, Response
 from pydantic import BaseModel, HttpUrl
+
+from src.core.config import config_exists, load_config
+from src.core.capture import CaptureService
+from src.models.capture import CaptureRequest, CaptureSource, ForceType
 
 router = APIRouter()
 
@@ -163,8 +169,8 @@ async def capture_url(request: CaptureRequestBody) -> CaptureResponseBody:
         )
 
     # Validate force_type if provided
+    valid_types = ["article", "video", "repo", "news", "walkthrough", "printable"]
     if request.force_type is not None:
-        valid_types = ["article", "video", "repo", "news", "walkthrough", "printable"]
         if request.force_type not in valid_types:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -175,11 +181,100 @@ async def capture_url(request: CaptureRequestBody) -> CaptureResponseBody:
                 },
             )
 
-    # TODO: Implement actual capture logic in T029
-    # For now, return placeholder response
+    # Check configuration exists
+    if not config_exists():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": True,
+                "message": "Server not configured. Run 'claudsidian config init' first.",
+                "code": "NOT_CONFIGURED",
+            },
+        )
+
+    # Load configuration
+    try:
+        config = load_config()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": True,
+                "message": f"Failed to load configuration: {str(e)}",
+                "code": "CONFIG_ERROR",
+            },
+        )
+
+    # Map source string to enum
+    source_map = {
+        "browser": CaptureSource.BROWSER,
+        "cli": CaptureSource.CLI,
+        "inbox": CaptureSource.INBOX,
+        "android": CaptureSource.ANDROID,
+    }
+
+    # Map force_type string to enum
+    force_type_enum = None
+    if request.force_type:
+        force_type_map = {
+            "article": ForceType.ARTICLE,
+            "video": ForceType.VIDEO,
+            "repo": ForceType.REPO,
+            "news": ForceType.NEWS,
+            "walkthrough": ForceType.WALKTHROUGH,
+            "printable": ForceType.PRINTABLE,
+        }
+        force_type_enum = force_type_map.get(request.force_type)
+
+    # Create capture request
+    capture_request = CaptureRequest(
+        url=str(request.url),
+        source=source_map[request.source],
+        timestamp=datetime.now(),
+        force_type=force_type_enum,
+    )
+
+    # Execute capture
+    async with CaptureService(config) as service:
+        result = await service.capture(capture_request)
+
+    # Handle duplicate
+    if result.is_duplicate:
+        return Response(
+            content=DuplicateResponseBody(
+                existing_note=result.existing_note or "",
+                message=result.error or "Note already exists for this URL",
+            ).model_dump_json(),
+            status_code=status.HTTP_409_CONFLICT,
+            media_type="application/json",
+        )
+
+    # Handle queued
+    if result.queued:
+        return Response(
+            content=QueuedResponseBody(
+                queue_id=result.queue_id or "",
+                message=result.error or "Capture queued for processing",
+            ).model_dump_json(),
+            status_code=status.HTTP_202_ACCEPTED,
+            media_type="application/json",
+        )
+
+    # Handle error
+    if not result.success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": True,
+                "message": result.error or "Capture failed",
+                "code": "CAPTURE_FAILED",
+            },
+        )
+
+    # Success
     return CaptureResponseBody(
-        note_path="Learning/placeholder.md",
-        title="Placeholder",
-        tags=["placeholder"],
-        content_type="article",
+        note_path=result.note_path or "",
+        title=result.title or "",
+        tags=result.tags,
+        content_type=result.content_type or "article",
     )
