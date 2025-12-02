@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Background: Obsidian Crystal -->
+  <defs>
+    <linearGradient id="crystalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a3a6b;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#2d1f47;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1025;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sparkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#7c3aed;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#5b21b6;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Crystal body - hexagonal gem shape -->
+  <polygon
+    points="64,8 112,36 112,92 64,120 16,92 16,36"
+    fill="url(#crystalGrad)"
+    stroke="#6d5a8a"
+    stroke-width="2"
+  />
+
+  <!-- Crystal facet lines -->
+  <line x1="64" y1="8" x2="64" y2="64" stroke="#5a4a7a" stroke-width="1.5" opacity="0.6"/>
+  <line x1="112" y1="36" x2="64" y2="64" stroke="#5a4a7a" stroke-width="1.5" opacity="0.6"/>
+  <line x1="112" y1="92" x2="64" y2="64" stroke="#5a4a7a" stroke-width="1.5" opacity="0.6"/>
+  <line x1="64" y1="120" x2="64" y2="64" stroke="#5a4a7a" stroke-width="1.5" opacity="0.6"/>
+  <line x1="16" y1="92" x2="64" y2="64" stroke="#5a4a7a" stroke-width="1.5" opacity="0.6"/>
+  <line x1="16" y1="36" x2="64" y2="64" stroke="#5a4a7a" stroke-width="1.5" opacity="0.6"/>
+
+  <!-- AI Spark / Neural node in center -->
+  <g filter="url(#glow)">
+    <!-- Central glowing orb -->
+    <circle cx="64" cy="64" r="16" fill="url(#sparkGrad)" opacity="0.9"/>
+
+    <!-- Inner bright core -->
+    <circle cx="64" cy="64" r="8" fill="#c4b5fd" opacity="0.8"/>
+    <circle cx="64" cy="64" r="4" fill="#ede9fe" opacity="0.9"/>
+
+    <!-- Neural connection lines radiating out -->
+    <g stroke="#a78bfa" stroke-width="2" opacity="0.7">
+      <line x1="64" y1="48" x2="64" y2="28"/>
+      <line x1="78" y1="56" x2="94" y2="44"/>
+      <line x1="78" y1="72" x2="94" y2="84"/>
+      <line x1="64" y1="80" x2="64" y2="100"/>
+      <line x1="50" y1="72" x2="34" y2="84"/>
+      <line x1="50" y1="56" x2="34" y2="44"/>
+    </g>
+
+    <!-- Small nodes at connection endpoints -->
+    <g fill="#c4b5fd">
+      <circle cx="64" cy="28" r="3"/>
+      <circle cx="94" cy="44" r="3"/>
+      <circle cx="94" cy="84" r="3"/>
+      <circle cx="64" cy="100" r="3"/>
+      <circle cx="34" cy="84" r="3"/>
+      <circle cx="34" cy="44" r="3"/>
+    </g>
+  </g>
+</svg>
