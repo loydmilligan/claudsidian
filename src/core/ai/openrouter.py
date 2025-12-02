@@ -30,6 +30,10 @@ class OpenRouterClient:
     DEFAULT_MODEL = "anthropic/claude-3-haiku"
     BASE_URL = "https://openrouter.ai/api/v1"
 
+    # App identification for OpenRouter dashboard
+    APP_NAME = "Claudsidian"
+    APP_URL = "https://github.com/loydmilligan/claudsidian"
+
     def __init__(self, api_key: str, model: Optional[str] = None):
         """Initialize the OpenRouter client.
 
@@ -47,6 +51,10 @@ class OpenRouterClient:
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=self.BASE_URL,
+            default_headers={
+                "HTTP-Referer": self.APP_URL,
+                "X-Title": self.APP_NAME,
+            },
         )
 
     async def complete(
