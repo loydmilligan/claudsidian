@@ -10,6 +10,7 @@ from src.cli.commands.capture import capture
 from src.cli.commands.config import config
 from src.cli.commands.serve import serve
 from src.cli.commands.status import status
+from src.cli.commands.test import test
 from src.cli.commands.watch import watch
 from src.core.config import config_exists, load_config
 from src.core.queue import CaptureQueue
@@ -86,6 +87,9 @@ cli.add_command(serve)
 
 # Add watch command to CLI
 cli.add_command(watch)
+
+# Add test command to CLI
+cli.add_command(test)
 
 
 def _get_queue() -> CaptureQueue:

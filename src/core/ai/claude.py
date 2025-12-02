@@ -28,7 +28,7 @@ class ClaudeClient:
         default_model: The default model to use for completions.
     """
 
-    DEFAULT_MODEL = "claude-3-sonnet-20240229"
+    DEFAULT_MODEL = "claude-sonnet-4-20250514"
     DEFAULT_MAX_TOKENS = 4096
 
     def __init__(self, api_key: str, default_model: Optional[str] = None):
