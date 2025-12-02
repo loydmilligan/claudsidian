@@ -24,6 +24,7 @@ from src.models.note import Note, Frontmatter
 from src.models.queue import QueueItem, QueueStatus
 from src.core.content_type import ContentType, detect_content_type
 from src.core.extractors.article import ArticleExtractor, ArticleContent
+from src.core.extractors.youtube import YouTubeExtractor, YouTubeContent
 from src.core.ai.router import AIRouter, AIRouterError
 from src.core.ai.prompts import get_summarization_prompt, get_tag_generation_prompt
 from src.core.vault.writer import VaultWriter
@@ -167,9 +168,24 @@ class CaptureService:
                     error=f"URL already captured in note: {existing_note}"
                 )
 
-            # Step 2: Fetch and extract content (T031b - HTTP error handling)
+            # Step 2: Detect content type first (needed to choose extractor)
+            # For videos, we detect from URL; for articles, we may refine after fetching
+            content_type = self._detect_content_type(request, url, "")
+            logger.info(f"Initial content type detection: {content_type}")
+
+            # Step 3: Fetch and extract content based on type (T031b - HTTP error handling)
             try:
-                article = await self._fetch_content(url)
+                if content_type == ContentType.VIDEO:
+                    extracted = await self._fetch_video_content(url)
+                    content_for_ai = extracted.transcript_text or extracted.description
+                    title = extracted.title
+                else:
+                    extracted = await self._fetch_article_content(url)
+                    content_for_ai = extracted.content
+                    title = extracted.title
+                    # Refine content type detection with actual content
+                    content_type = self._detect_content_type(request, url, extracted.content)
+                    logger.info(f"Refined content type: {content_type}")
             except httpx.HTTPStatusError as e:
                 return await self._handle_http_error(e, request)
             except httpx.HTTPError as e:
@@ -179,18 +195,18 @@ class CaptureService:
                     request,
                     f"Network error: {str(e)}"
                 )
+            except Exception as e:
+                # Handle yt-dlp or other extraction errors
+                logger.error(f"Extraction error: {e}")
+                return CaptureResult(
+                    success=False,
+                    error=f"Failed to extract content: {str(e)}"
+                )
 
-            # Step 3: Detect content type
-            content_type = self._detect_content_type(request, url, article.content)
-            logger.info(f"Detected content type: {content_type}")
-
-            # Step 4: Extract content (already done in fetch_content for articles)
-            # For other types (video, repo), we'd use different extractors here
-
-            # Step 5: Generate summary and tags via AI
+            # Step 4: Generate summary and tags via AI
             try:
-                summary = await self._generate_summary(article.content, content_type.value)
-                tags = await self._generate_tags(article.content, article.title)
+                summary = await self._generate_summary(content_for_ai, content_type.value)
+                tags = await self._generate_tags(content_for_ai, title)
             except AIRouterError as e:
                 # AI errors should trigger retry (could be temporary API issues)
                 logger.error(f"AI processing error: {e}")
@@ -199,18 +215,25 @@ class CaptureService:
                     f"AI processing error: {str(e)}"
                 )
 
-            # Step 6: Find backlinks
+            # Step 5: Find backlinks
             related_notes = self._backlinks.find_related(tags, min_shared=2)
             backlinks_section = self._backlinks.format_backlinks(related_notes)
 
-            # Step 7: Combine content with metadata
-            full_content = self._format_note_content(
-                article,
-                summary,
-                backlinks_section
-            )
+            # Step 6: Format note content based on type
+            if content_type == ContentType.VIDEO:
+                full_content = self._format_video_content(
+                    extracted,  # type: YouTubeContent
+                    summary,
+                    backlinks_section
+                )
+            else:
+                full_content = self._format_note_content(
+                    extracted,  # type: ArticleContent
+                    summary,
+                    backlinks_section
+                )
 
-            # Step 8: Create note object
+            # Step 7: Create note object
             frontmatter = Frontmatter(
                 source=request.url,
                 captured=request.timestamp,
@@ -223,13 +246,13 @@ class CaptureService:
             target_folder = self._get_folder_for_type(content_type)
 
             note = Note(
-                title=article.title,
+                title=title,
                 content=full_content,
                 frontmatter=frontmatter,
-                file_path=f"{target_folder}/{article.title}.md"  # Will be sanitized by writer
+                file_path=f"{target_folder}/{title}.md"  # Will be sanitized by writer
             )
 
-            # Step 9: Write note to vault
+            # Step 8: Write note to vault
             note_path = self._writer.write_note(note, subfolder=target_folder)
             relative_path = str(note_path.relative_to(Path(self._config.vault_path)))
 
@@ -238,7 +261,7 @@ class CaptureService:
             return CaptureResult(
                 success=True,
                 note_path=relative_path,
-                title=article.title,
+                title=title,
                 tags=tags,
                 content_type=content_type.value
             )
@@ -298,8 +321,8 @@ class CaptureService:
 
         return None
 
-    async def _fetch_content(self, url: str) -> ArticleContent:
-        """Fetch and extract content from URL.
+    async def _fetch_article_content(self, url: str) -> ArticleContent:
+        """Fetch and extract article content from URL.
 
         Args:
             url: The URL to fetch
@@ -319,6 +342,26 @@ class CaptureService:
                 f"({article.word_count} words)"
             )
             return article
+
+    async def _fetch_video_content(self, url: str) -> YouTubeContent:
+        """Fetch and extract YouTube video content from URL.
+
+        Args:
+            url: The YouTube URL to fetch
+
+        Returns:
+            YouTubeContent with extracted data (metadata, transcript, chapters)
+
+        Raises:
+            Exception: For yt-dlp or transcript API errors
+        """
+        extractor = YouTubeExtractor()
+        video = extractor.extract(url)
+        logger.info(
+            f"Extracted video: {video.title} "
+            f"(duration: {video.duration}s, has_transcript: {video.has_transcript})"
+        )
+        return video
 
     async def _handle_http_error(
         self,
@@ -559,6 +602,108 @@ class CaptureService:
         sections.append("")
         sections.append(article.content)
         sections.append("")
+
+        # Backlinks section
+        if backlinks_section:
+            sections.append("")
+            sections.append(backlinks_section)
+
+        return "\n".join(sections)
+
+    def _format_video_content(
+        self,
+        video: YouTubeContent,
+        summary: str,
+        backlinks_section: str
+    ) -> str:
+        """Format YouTube video note content.
+
+        Combines video metadata, transcript summary, chapters, and backlinks.
+
+        Args:
+            video: Extracted YouTube video content
+            summary: AI-generated summary
+            backlinks_section: Formatted backlinks section
+
+        Returns:
+            Complete formatted markdown content
+        """
+        sections = []
+
+        # Title
+        sections.append(f"# {video.title}")
+        sections.append("")
+
+        # Video embed/link
+        sections.append("## Video")
+        sections.append("")
+        if video.thumbnail_url:
+            sections.append(f"[![{video.title}]({video.thumbnail_url})]({video.source_url})")
+        else:
+            sections.append(f"[Watch on YouTube]({video.source_url})")
+        sections.append("")
+
+        # Metadata
+        sections.append("## Info")
+        sections.append("")
+        sections.append(f"**Channel:** [{video.channel}]({video.channel_url or video.source_url})")
+
+        # Format duration
+        hours, remainder = divmod(video.duration, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            duration_str = f"{minutes}:{seconds:02d}"
+        sections.append(f"**Duration:** {duration_str}")
+
+        if video.upload_date:
+            sections.append(f"**Uploaded:** {video.upload_date}")
+        if video.view_count:
+            sections.append(f"**Views:** {video.view_count:,}")
+        sections.append("")
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        sections.append(summary)
+        sections.append("")
+
+        # Chapters if available
+        if video.chapters:
+            sections.append("## Chapters")
+            sections.append("")
+            for chapter in video.chapters:
+                # Format timestamp
+                ch_mins, ch_secs = divmod(chapter.start_time, 60)
+                ch_hours, ch_mins = divmod(ch_mins, 60)
+                if ch_hours > 0:
+                    ts = f"{ch_hours}:{ch_mins:02d}:{ch_secs:02d}"
+                else:
+                    ts = f"{ch_mins}:{ch_secs:02d}"
+                # Link to timestamp
+                sections.append(f"- [{ts}]({video.source_url}&t={chapter.start_time}) {chapter.title}")
+            sections.append("")
+
+        # Transcript notice
+        if video.has_transcript:
+            sections.append("## Transcript")
+            sections.append("")
+            sections.append("*Transcript available - used for AI summarization.*")
+            sections.append("")
+        else:
+            sections.append("> **Note:** No transcript available for this video.")
+            sections.append("")
+
+        # Description (truncated)
+        if video.description:
+            sections.append("## Description")
+            sections.append("")
+            desc = video.description[:1000]
+            if len(video.description) > 1000:
+                desc += "..."
+            sections.append(desc)
+            sections.append("")
 
         # Backlinks section
         if backlinks_section:
