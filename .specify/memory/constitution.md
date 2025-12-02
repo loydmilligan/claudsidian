@@ -2,22 +2,22 @@
 ================================================================================
 SYNC IMPACT REPORT
 ================================================================================
-Version change: 0.0.0 → 1.0.0 (MAJOR - initial constitution creation)
+Version change: 1.0.0 → 1.1.0 (MINOR - expanded guidance on testing and integration)
 
-Modified principles: N/A (new document)
+Modified principles:
+- Principle VI "Pragmatic Development" → clarified testing approach
+- Governance "Compliance" → expanded with Phase Completion Checklist
 
 Added sections:
-- 7 Core Principles (I-VII)
-- Content Types section
-- Development Workflow section
-- Governance section
+- Principle VIII "Phase Integration & Verification"
+- Phase Completion Checklist in Governance
 
-Removed sections: N/A (new document)
+Removed sections: None
 
 Templates requiring updates:
-- .specify/templates/plan-template.md: ⚠ pending (Constitution Check gates need update)
+- .specify/templates/plan-template.md: ✅ updated (added Phase Completion gate reference)
 - .specify/templates/spec-template.md: ✅ compatible (no changes needed)
-- .specify/templates/tasks-template.md: ✅ compatible (testing already marked optional)
+- .specify/templates/tasks-template.md: ✅ updated (added Phase Completion checklist to each phase)
 
 Follow-up TODOs: None
 ================================================================================
@@ -82,12 +82,14 @@ Security hardening is NOT a priority - the threat model assumes trusted local en
 ### VI. Pragmatic Development
 
 Development practices MUST prioritize shipping over ceremony:
-- Testing is optional during development - add tests when stability matters, not upfront
-- Documentation is optional unless it solves a real problem
-- Refactoring happens when code becomes painful, not preemptively
+- **Testing**: Basic end-to-end verification after each phase is REQUIRED. Avoid TDD and extensive unit test suites - these add overhead without proportional value. The goal is smoke tests that verify the feature works, not comprehensive test coverage.
+- **Documentation**: Optional unless it solves a real problem
+- **Refactoring**: Happens when code becomes painful, not preemptively
 - Perfect is the enemy of working
 
 No timeline pressure - features ship when they're ready, not when deadlines demand.
+
+**Testing Clarification**: "Optional testing" means no TDD, no mandated coverage percentages, no test-before-code requirements. It does NOT mean no testing at all. Each phase MUST include at minimum a manual or automated smoke test proving the feature works end-to-end.
 
 ### VII. Content-Type Aware
 
@@ -103,6 +105,24 @@ The system MUST provide specialized handling for different content types:
 | 3D Models | Source link, file type, print settings | Printables tracking note |
 
 Each content type MAY have its own template and processing pipeline.
+
+### VIII. Phase Integration & Verification
+
+**Every phase MUST be fully integrated before being marked complete.**
+
+This principle exists because building isolated components without integration creates invisible gaps that compound into system-wide failures. A feature that "works" in isolation but isn't wired into the main flow provides zero user value.
+
+Requirements for phase completion:
+1. **Integration**: All components built in the phase MUST be connected to the main application flow
+2. **Verification**: A working end-to-end test (manual or automated) MUST demonstrate the feature functions
+3. **Constitution Review**: The phase MUST be checked against all constitution principles before sign-off
+
+**Anti-pattern to avoid**: Building an extractor module, marking the task "done", but never wiring it into `capture.py`. The extractor exists but users can't use it.
+
+**Required pattern**: Every extractor phase includes:
+- The extractor implementation tasks
+- An integration task wiring it into the capture flow
+- A verification task testing the complete path
 
 ## Content Types
 
@@ -173,7 +193,35 @@ Before implementing any feature, verify:
 - [ ] Simplest viable architecture chosen (Principle III)
 - [ ] Significant decisions discussed first (Principle IV)
 - [ ] No cloud dependencies beyond AI APIs (Principle V)
-- [ ] No unnecessary testing/docs overhead (Principle VI)
+- [ ] Basic smoke test planned, no over-testing (Principle VI)
 - [ ] Content type has appropriate handling (Principle VII)
+- [ ] Integration and verification tasks included (Principle VIII)
 
-**Version**: 1.0.0 | **Ratified**: 2025-12-01 | **Last Amended**: 2025-12-01
+### Phase Completion Checklist
+
+**MEMORY: Review this checklist at the end of EVERY phase before marking it complete.**
+
+At the end of each implementation phase:
+
+1. **Integration Check**
+   - [ ] All new components are wired into the main application flow
+   - [ ] No "orphan" modules exist that users can't access
+   - [ ] Entry points (CLI commands, API endpoints) actually call the new code
+
+2. **Verification Check**
+   - [ ] End-to-end test demonstrates the feature works
+   - [ ] Test uses realistic inputs (real URLs, real data)
+   - [ ] Test verifies output is correct (note created, content accurate)
+
+3. **Constitution Check**
+   - [ ] Re-read all 8 principles
+   - [ ] Verify phase doesn't violate any principle
+   - [ ] Document any principle exceptions with justification
+
+4. **Sign-off**
+   - [ ] All above checks pass
+   - [ ] Phase can be marked complete
+
+**Failure to complete this checklist before moving to the next phase is a constitution violation.**
+
+**Version**: 1.1.0 | **Ratified**: 2025-12-01 | **Last Amended**: 2025-12-02

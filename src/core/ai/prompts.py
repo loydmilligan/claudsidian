@@ -71,6 +71,100 @@ Given repository information, provide a 2-3 sentence summary that captures:
 
 Keep it technical but accessible. Focus on practical value."""
 
+    REPO_TAGS = """You are a helpful assistant that generates tags for code repositories.
+Given repository information, generate 5-10 relevant tags following these rules:
+1. Use lowercase with hyphens (e.g., machine-learning, not Machine Learning)
+2. Include the primary programming language
+3. Include frameworks and libraries detected
+4. Include purpose tags (cli, web-app, library, framework, devtool, etc.)
+5. Include domain tags (data-science, web-development, devops, etc.)
+6. Be specific enough to be useful for searching
+7. Return ONLY a comma-separated list of tags, nothing else"""
+
+    NEWS_SUMMARY = """You are a helpful assistant that summarizes news articles.
+Given a news article, provide a concise summary that captures:
+1. The main news event or announcement (who, what, when, where)
+2. Key facts and figures mentioned
+3. Why this news matters or its broader implications
+
+Format your response as:
+## Summary
+[2-3 sentence overview of the news]
+
+## Key Facts
+- Fact 1
+- Fact 2
+- Fact 3
+
+## Implications
+[1-2 sentences on why this matters]
+
+Be factual and objective. Avoid editorializing."""
+
+    NEWS_TAGS = """You are a helpful assistant that generates tags for news articles.
+Given a news article, generate 5-10 relevant tags following these rules:
+1. Use lowercase with hyphens (e.g., climate-change, not Climate Change)
+2. Include topic tags (what the news is about)
+3. Include category tags (politics, business, tech, science, etc.)
+4. Include entity tags (relevant people, companies, countries)
+5. Be specific enough to be useful for searching
+6. Return ONLY a comma-separated list of tags, nothing else"""
+
+    WALKTHROUGH_SUMMARY = """You are a helpful assistant that summarizes tutorials and walkthroughs.
+Given tutorial content, provide a structured summary that captures:
+1. What the tutorial teaches (the goal/outcome)
+2. Key steps or phases in the process
+3. Important prerequisites or requirements
+4. Any warnings or common pitfalls
+
+Format your response as:
+## Goal
+[1-2 sentences describing what you'll learn/build]
+
+## Prerequisites
+- Prerequisite 1
+- Prerequisite 2
+
+## Steps Overview
+1. Step 1 summary
+2. Step 2 summary
+3. Step 3 summary
+...
+
+## Warnings
+- Any gotchas or common mistakes to avoid
+
+Be concise and actionable. Focus on practical guidance."""
+
+    WALKTHROUGH_TAGS = """You are a helpful assistant that generates tags for tutorials and walkthroughs.
+Given tutorial content, generate 5-10 relevant tags following these rules:
+1. Use lowercase with hyphens (e.g., web-development, not Web Development)
+2. Include technology tags (programming languages, frameworks, tools)
+3. Include skill level tag (beginner, intermediate, advanced)
+4. Include topic tags (what the tutorial is about)
+5. Include format tag (tutorial, guide, how-to, walkthrough)
+6. Be specific enough to be useful for searching
+7. Return ONLY a comma-separated list of tags, nothing else"""
+
+    PRINTABLE_SUMMARY = """You are a helpful assistant that summarizes 3D printable models.
+Given information about a 3D model, provide a concise summary that captures:
+1. What the model is (functional part, decoration, toy, etc.)
+2. Key design features or notable aspects
+3. Practical applications or use cases
+4. Any special printing considerations
+
+Keep it practical and focused on whether this model would be useful to print."""
+
+    PRINTABLE_TAGS = """You are a helpful assistant that generates tags for 3D printable models.
+Given 3D model information, generate 5-10 relevant tags following these rules:
+1. Use lowercase with hyphens (e.g., desk-organizer, not Desk Organizer)
+2. Include category tags (functional, decorative, toy, tool, etc.)
+3. Include material tags if specific material is required (pla-only, tpu-required, etc.)
+4. Include use-case tags (home, office, workshop, gaming, etc.)
+5. Include difficulty level if apparent (beginner-friendly, advanced-print)
+6. Be specific enough to be useful for searching
+7. Return ONLY a comma-separated list of tags, nothing else"""
+
 
 def get_summarization_prompt(content: str, content_type: str = "article") -> Tuple[str, str]:
     """Get system and user prompts for content summarization.
@@ -104,10 +198,16 @@ def get_summarization_prompt(content: str, content_type: str = "article") -> Tup
         system_prompt = Prompts.VIDEO_SUMMARY
     elif content_type == "repo":
         system_prompt = Prompts.REPO_SUMMARY
+    elif content_type == "news":
+        system_prompt = Prompts.NEWS_SUMMARY
+    elif content_type == "walkthrough":
+        system_prompt = Prompts.WALKTHROUGH_SUMMARY
+    elif content_type == "printable":
+        system_prompt = Prompts.PRINTABLE_SUMMARY
     else:
         raise ValueError(
             f"Invalid content_type: {content_type}. "
-            f"Must be one of: article, video, repo"
+            f"Must be one of: article, video, repo, news, walkthrough, printable"
         )
 
     # Create the user prompt with the actual content

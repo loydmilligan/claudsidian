@@ -1,6 +1,7 @@
 """Serve command - start the HTTP server."""
 
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -12,7 +13,8 @@ from src.server.app import run_server
 @click.option("--port", "-p", default=8765, help="Port to listen on")
 @click.option("--host", default="127.0.0.1", help="Host to bind to (use 0.0.0.0 for LAN access)")
 @click.option("--daemon", "-d", is_flag=True, help="Run in background (not implemented)")
-def serve(port: int, host: str, daemon: bool) -> None:
+@click.option("--advertise", "-a", is_flag=True, help="Advertise server via mDNS for LAN discovery")
+def serve(port: int, host: str, daemon: bool, advertise: bool) -> None:
     """Start the Claudsidian HTTP server.
 
     The server provides the API for browser extension and other clients
@@ -22,6 +24,7 @@ def serve(port: int, host: str, daemon: bool) -> None:
         claudsidian serve                    # Start on localhost:8765
         claudsidian serve -p 9000            # Start on port 9000
         claudsidian serve --host 0.0.0.0     # Allow LAN connections
+        claudsidian serve --host 0.0.0.0 -a  # LAN access with mDNS discovery
     """
     # Check configuration
     if not config_exists():
@@ -57,6 +60,17 @@ def serve(port: int, host: str, daemon: bool) -> None:
         click.echo("Server will run in foreground.")
         click.echo()
 
+    # Start mDNS discovery if requested
+    discovery = None
+    if advertise:
+        from src.server.discovery import ServiceDiscovery
+        discovery = ServiceDiscovery(port=port, host=host if host != "127.0.0.1" else None)
+        if discovery.start():
+            click.echo(click.style("mDNS: ", fg="green") + "Service advertised on local network")
+        else:
+            click.echo(click.style("Warning: ", fg="yellow") + "mDNS advertisement failed (zeroconf package may be missing)")
+            click.echo("Install with: pip install zeroconf")
+
     # Start server
     click.echo(f"Starting Claudsidian server at http://{host}:{port}")
     click.echo("Press Ctrl+C to stop")
@@ -66,3 +80,6 @@ def serve(port: int, host: str, daemon: bool) -> None:
         run_server(host=host, port=port)
     except KeyboardInterrupt:
         click.echo("\nServer stopped.")
+    finally:
+        if discovery:
+            discovery.stop()

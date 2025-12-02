@@ -24,6 +24,10 @@ from src.models.note import Note, Frontmatter
 from src.models.queue import QueueItem, QueueStatus
 from src.core.content_type import ContentType, detect_content_type
 from src.core.extractors.article import ArticleExtractor, ArticleContent
+from src.core.extractors.github import GitHubExtractor, GitHubContent
+from src.core.extractors.news import NewsExtractor, NewsContent
+from src.core.extractors.printable import PrintableExtractor, PrintableContent
+from src.core.extractors.walkthrough import WalkthroughExtractor, WalkthroughContent
 from src.core.extractors.youtube import YouTubeExtractor, YouTubeContent
 from src.core.ai.router import AIRouter, AIRouterError
 from src.core.ai.prompts import get_summarization_prompt, get_tag_generation_prompt
@@ -179,6 +183,22 @@ class CaptureService:
                     extracted = await self._fetch_video_content(url)
                     content_for_ai = extracted.transcript_text or extracted.description
                     title = extracted.title
+                elif content_type == ContentType.REPO:
+                    extracted = await self._fetch_repo_content(url)
+                    content_for_ai = extracted.readme_content or extracted.description
+                    title = extracted.full_name
+                elif content_type == ContentType.NEWS:
+                    extracted = await self._fetch_news_content(url)
+                    content_for_ai = extracted.content
+                    title = extracted.title
+                elif content_type == ContentType.WALKTHROUGH:
+                    extracted = await self._fetch_walkthrough_content(url)
+                    content_for_ai = extracted.content
+                    title = extracted.title
+                elif content_type == ContentType.PRINTABLE:
+                    extracted = await self._fetch_printable_content(url)
+                    content_for_ai = extracted.description
+                    title = extracted.title
                 else:
                     extracted = await self._fetch_article_content(url)
                     content_for_ai = extracted.content
@@ -223,6 +243,30 @@ class CaptureService:
             if content_type == ContentType.VIDEO:
                 full_content = self._format_video_content(
                     extracted,  # type: YouTubeContent
+                    summary,
+                    backlinks_section
+                )
+            elif content_type == ContentType.REPO:
+                full_content = self._format_repo_content(
+                    extracted,  # type: GitHubContent
+                    summary,
+                    backlinks_section
+                )
+            elif content_type == ContentType.NEWS:
+                full_content = self._format_news_content(
+                    extracted,  # type: NewsContent
+                    summary,
+                    backlinks_section
+                )
+            elif content_type == ContentType.WALKTHROUGH:
+                full_content = self._format_walkthrough_content(
+                    extracted,  # type: WalkthroughContent
+                    summary,
+                    backlinks_section
+                )
+            elif content_type == ContentType.PRINTABLE:
+                full_content = self._format_printable_content(
+                    extracted,  # type: PrintableContent
                     summary,
                     backlinks_section
                 )
@@ -362,6 +406,90 @@ class CaptureService:
             f"(duration: {video.duration}s, has_transcript: {video.has_transcript})"
         )
         return video
+
+    async def _fetch_repo_content(self, url: str) -> GitHubContent:
+        """Fetch and extract GitHub repository content from URL.
+
+        Args:
+            url: The GitHub repository URL to fetch
+
+        Returns:
+            GitHubContent with extracted data (metadata, README, tech tags)
+
+        Raises:
+            httpx.HTTPError: For API errors
+            ValueError: For invalid GitHub URLs
+        """
+        async with GitHubExtractor() as extractor:
+            repo = await extractor.extract(url)
+            logger.info(
+                f"Extracted repo: {repo.full_name} "
+                f"(stars: {repo.stars}, language: {repo.language})"
+            )
+            return repo
+
+    async def _fetch_news_content(self, url: str) -> NewsContent:
+        """Fetch and extract news article content from URL.
+
+        Args:
+            url: The news article URL to fetch
+
+        Returns:
+            NewsContent with extracted data (article, metadata, source info)
+
+        Raises:
+            httpx.HTTPError: For HTTP errors
+            ValueError: For invalid HTML content
+        """
+        async with NewsExtractor() as extractor:
+            news = await extractor.extract(url)
+            logger.info(
+                f"Extracted news: {news.title} "
+                f"(source: {news.source_name}, words: {news.word_count})"
+            )
+            return news
+
+    async def _fetch_walkthrough_content(self, url: str) -> WalkthroughContent:
+        """Fetch and extract walkthrough/tutorial content from URL.
+
+        Args:
+            url: The tutorial URL to fetch
+
+        Returns:
+            WalkthroughContent with extracted data (steps, prerequisites, warnings)
+
+        Raises:
+            httpx.HTTPError: For HTTP errors
+            ValueError: For invalid HTML content
+        """
+        async with WalkthroughExtractor() as extractor:
+            walkthrough = await extractor.extract(url)
+            logger.info(
+                f"Extracted walkthrough: {walkthrough.title} "
+                f"(steps: {len(walkthrough.steps)}, code_blocks: {walkthrough.code_blocks})"
+            )
+            return walkthrough
+
+    async def _fetch_printable_content(self, url: str) -> PrintableContent:
+        """Fetch and extract 3D printable model content from URL.
+
+        Args:
+            url: The 3D model URL to fetch (Thingiverse, Printables, Cults3D)
+
+        Returns:
+            PrintableContent with extracted data (metadata, print settings, files)
+
+        Raises:
+            httpx.HTTPError: For HTTP errors
+            ValueError: For unsupported platforms
+        """
+        async with PrintableExtractor() as extractor:
+            printable = await extractor.extract(url)
+            logger.info(
+                f"Extracted printable: {printable.title} "
+                f"(platform: {printable.platform}, files: {', '.join(printable.file_types)})"
+            )
+            return printable
 
     async def _handle_http_error(
         self,
@@ -702,6 +830,375 @@ class CaptureService:
             desc = video.description[:1000]
             if len(video.description) > 1000:
                 desc += "..."
+            sections.append(desc)
+            sections.append("")
+
+        # Backlinks section
+        if backlinks_section:
+            sections.append("")
+            sections.append(backlinks_section)
+
+        return "\n".join(sections)
+
+    def _format_repo_content(
+        self,
+        repo: GitHubContent,
+        summary: str,
+        backlinks_section: str
+    ) -> str:
+        """Format GitHub repository note content.
+
+        Combines repository metadata, README summary, and backlinks.
+
+        Args:
+            repo: Extracted GitHub repository content
+            summary: AI-generated summary
+            backlinks_section: Formatted backlinks section
+
+        Returns:
+            Complete formatted markdown content
+        """
+        sections = []
+
+        # Title
+        sections.append(f"# {repo.full_name}")
+        sections.append("")
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        sections.append(summary)
+        sections.append("")
+
+        # Repository info table
+        sections.append("## Repository Info")
+        sections.append("")
+        sections.append("| Metric | Value |")
+        sections.append("|--------|-------|")
+        sections.append(f"| Stars | ⭐ {repo.stars:,} |")
+        sections.append(f"| Forks | 🔱 {repo.forks:,} |")
+        if repo.language:
+            sections.append(f"| Language | {repo.language} |")
+        if repo.license:
+            sections.append(f"| License | {repo.license} |")
+        sections.append(f"| Open Issues | {repo.open_issues:,} |")
+        if repo.updated_at:
+            # Format date nicely
+            update_date = repo.updated_at[:10] if repo.updated_at else "Unknown"
+            sections.append(f"| Last Updated | {update_date} |")
+        sections.append("")
+
+        # Links
+        sections.append(f"[View on GitHub]({repo.source_url})")
+        if repo.homepage:
+            sections.append(f" | [Project Homepage]({repo.homepage})")
+        sections.append("")
+
+        # Topics
+        if repo.topics:
+            sections.append("## Topics")
+            sections.append("")
+            topics_formatted = " ".join([f"`{topic}`" for topic in repo.topics])
+            sections.append(topics_formatted)
+            sections.append("")
+
+        # Description
+        if repo.description:
+            sections.append("## Description")
+            sections.append("")
+            sections.append(repo.description)
+            sections.append("")
+
+        # README (truncated for note brevity)
+        if repo.has_readme and repo.readme_content:
+            sections.append("## README")
+            sections.append("")
+            # Truncate very long READMEs
+            readme = repo.readme_content
+            if len(readme) > 5000:
+                readme = readme[:5000] + "\n\n*[README truncated - view full on GitHub]*"
+            sections.append(readme)
+            sections.append("")
+
+        # Tech tags detected
+        if repo.tech_tags:
+            sections.append("## Technologies")
+            sections.append("")
+            tech_formatted = " ".join([f"`{tag}`" for tag in repo.tech_tags])
+            sections.append(tech_formatted)
+            sections.append("")
+
+        # Backlinks section
+        if backlinks_section:
+            sections.append("")
+            sections.append(backlinks_section)
+
+        return "\n".join(sections)
+
+    def _format_news_content(
+        self,
+        news: NewsContent,
+        summary: str,
+        backlinks_section: str
+    ) -> str:
+        """Format news article note content.
+
+        Combines news article with source info, metadata, and backlinks.
+
+        Args:
+            news: Extracted news article content
+            summary: AI-generated summary
+            backlinks_section: Formatted backlinks section
+
+        Returns:
+            Complete formatted markdown content
+        """
+        sections = []
+
+        # Title
+        sections.append(f"# {news.title}")
+        sections.append("")
+
+        # Breaking news indicator
+        if news.is_breaking:
+            sections.append("> **BREAKING NEWS**")
+            sections.append("")
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        sections.append(summary)
+        sections.append("")
+
+        # Source info table
+        sections.append("## Source Info")
+        sections.append("")
+        sections.append("| Field | Value |")
+        sections.append("|-------|-------|")
+        sections.append(f"| Source | **{news.source_name}** |")
+        if news.publish_date:
+            pub_date = news.publish_date[:10] if news.publish_date else "Unknown"
+            sections.append(f"| Published | {pub_date} |")
+        if news.author:
+            sections.append(f"| Author | {news.author} |")
+        if news.section:
+            sections.append(f"| Section | {news.section} |")
+        if news.last_updated and news.last_updated != news.publish_date:
+            update_date = news.last_updated[:10] if news.last_updated else ""
+            sections.append(f"| Updated | {update_date} |")
+        sections.append(f"| Word Count | {news.word_count:,} |")
+        sections.append("")
+
+        # Link to original
+        sections.append(f"[Read Original Article]({news.source_url})")
+        sections.append("")
+
+        # Main content
+        sections.append("## Content")
+        sections.append("")
+        sections.append(news.content)
+        sections.append("")
+
+        # Backlinks section
+        if backlinks_section:
+            sections.append("")
+            sections.append(backlinks_section)
+
+        return "\n".join(sections)
+
+    def _format_walkthrough_content(
+        self,
+        walkthrough: WalkthroughContent,
+        summary: str,
+        backlinks_section: str
+    ) -> str:
+        """Format walkthrough/tutorial note content.
+
+        Combines tutorial content with steps, prerequisites, and backlinks.
+
+        Args:
+            walkthrough: Extracted walkthrough content
+            summary: AI-generated summary
+            backlinks_section: Formatted backlinks section
+
+        Returns:
+            Complete formatted markdown content
+        """
+        sections = []
+
+        # Title
+        sections.append(f"# {walkthrough.title}")
+        sections.append("")
+
+        # Info table
+        if walkthrough.difficulty or walkthrough.estimated_time or walkthrough.steps:
+            sections.append("| Info | Value |")
+            sections.append("|------|-------|")
+            if walkthrough.difficulty:
+                sections.append(f"| Difficulty | {walkthrough.difficulty} |")
+            if walkthrough.estimated_time:
+                sections.append(f"| Est. Time | {walkthrough.estimated_time} |")
+            if walkthrough.steps:
+                sections.append(f"| Steps | {len(walkthrough.steps)} |")
+            if walkthrough.code_blocks:
+                sections.append(f"| Code Blocks | {walkthrough.code_blocks} |")
+            sections.append("")
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        sections.append(summary)
+        sections.append("")
+
+        # Prerequisites
+        if walkthrough.prerequisites:
+            sections.append("## Prerequisites")
+            sections.append("")
+            for prereq in walkthrough.prerequisites:
+                sections.append(f"- {prereq}")
+            sections.append("")
+
+        # Warnings
+        if walkthrough.warnings:
+            sections.append("## Warnings")
+            sections.append("")
+            for warning in walkthrough.warnings:
+                sections.append(f"> ⚠️ {warning}")
+            sections.append("")
+
+        # Steps
+        if walkthrough.steps:
+            sections.append("## Steps")
+            sections.append("")
+            for step in walkthrough.steps:
+                indicators = ""
+                if step.has_warning:
+                    indicators += "⚠️ "
+                if step.has_code:
+                    indicators += "💻 "
+                sections.append(f"### Step {step.number}: {step.title}")
+                if indicators:
+                    sections.append(f"*{indicators.strip()}*")
+                sections.append("")
+
+        # Full content
+        sections.append("## Full Content")
+        sections.append("")
+        sections.append(walkthrough.content)
+        sections.append("")
+
+        # Source link
+        sections.append(f"[View Original Tutorial]({walkthrough.source_url})")
+        sections.append("")
+
+        # Backlinks section
+        if backlinks_section:
+            sections.append("")
+            sections.append(backlinks_section)
+
+        return "\n".join(sections)
+
+    def _format_printable_content(
+        self,
+        printable: PrintableContent,
+        summary: str,
+        backlinks_section: str
+    ) -> str:
+        """Format 3D printable model note content.
+
+        Combines model metadata, print settings, and backlinks.
+
+        Args:
+            printable: Extracted 3D model content
+            summary: AI-generated summary
+            backlinks_section: Formatted backlinks section
+
+        Returns:
+            Complete formatted markdown content
+        """
+        sections = []
+
+        # Title
+        sections.append(f"# {printable.title}")
+        sections.append("")
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        sections.append(summary)
+        sections.append("")
+
+        # Model info table
+        sections.append("## Model Info")
+        sections.append("")
+        sections.append("| Field | Value |")
+        sections.append("|-------|-------|")
+        sections.append(f"| Platform | **{printable.platform}** |")
+
+        creator_link = f"[{printable.creator}]({printable.creator_url})" if printable.creator_url else printable.creator
+        sections.append(f"| Creator | {creator_link} |")
+
+        if printable.download_count:
+            sections.append(f"| Downloads | {printable.download_count:,} |")
+        if printable.like_count:
+            sections.append(f"| Likes | {printable.like_count:,} |")
+        if printable.file_types:
+            sections.append(f"| File Types | {', '.join(printable.file_types)} |")
+        if printable.license:
+            sections.append(f"| License | {printable.license} |")
+        sections.append("")
+
+        # Link to original
+        sections.append(f"[View on {printable.platform}]({printable.source_url})")
+        sections.append("")
+
+        # Images
+        if printable.images:
+            sections.append("## Preview")
+            sections.append("")
+            for img in printable.images[:3]:  # Limit to 3 images
+                sections.append(f"![{printable.title}]({img})")
+            sections.append("")
+
+        # Print settings
+        ps = printable.print_settings
+        if any([ps.material, ps.layer_height, ps.infill, ps.supports is not None]):
+            sections.append("## Print Settings")
+            sections.append("")
+            sections.append("| Setting | Value |")
+            sections.append("|---------|-------|")
+            if ps.material:
+                sections.append(f"| Material | {ps.material} |")
+            if ps.layer_height:
+                sections.append(f"| Layer Height | {ps.layer_height}mm |")
+            if ps.infill is not None:
+                sections.append(f"| Infill | {ps.infill}% |")
+            if ps.supports is not None:
+                sections.append(f"| Supports | {'Yes' if ps.supports else 'No'} |")
+            if ps.raft is not None:
+                sections.append(f"| Raft | {'Yes' if ps.raft else 'No'} |")
+            if ps.print_time:
+                sections.append(f"| Est. Time | {ps.print_time} |")
+            if ps.notes:
+                sections.append(f"| Notes | {ps.notes} |")
+            sections.append("")
+
+        # Tags from the model
+        if printable.tags:
+            sections.append("## Categories")
+            sections.append("")
+            tags_formatted = " ".join([f"`{tag}`" for tag in printable.tags])
+            sections.append(tags_formatted)
+            sections.append("")
+
+        # Description
+        if printable.description:
+            sections.append("## Description")
+            sections.append("")
+            # Truncate very long descriptions
+            desc = printable.description
+            if len(desc) > 3000:
+                desc = desc[:3000] + "\n\n*[Description truncated]*"
             sections.append(desc)
             sections.append("")
 

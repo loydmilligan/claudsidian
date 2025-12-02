@@ -1,18 +1,75 @@
 """Claudsidian CLI - AI-powered knowledge capture for Obsidian."""
 
+import logging
+import sys
+from pathlib import Path
+
 import click
 
 from src.cli.commands.capture import capture
 from src.cli.commands.config import config
 from src.cli.commands.serve import serve
 from src.cli.commands.status import status
+from src.cli.commands.watch import watch
+from src.core.config import config_exists, load_config
+from src.core.queue import CaptureQueue
+from src.models.queue import QueueStatus
+
+
+def setup_logging(verbose: bool = False, debug: bool = False) -> None:
+    """Configure logging based on verbosity level.
+
+    Args:
+        verbose: Enable verbose output (INFO level)
+        debug: Enable debug output (DEBUG level)
+    """
+    if debug:
+        level = logging.DEBUG
+        log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    elif verbose:
+        level = logging.INFO
+        log_format = "%(levelname)s - %(name)s - %(message)s"
+    else:
+        level = logging.WARNING
+        log_format = "%(levelname)s - %(message)s"
+
+    logging.basicConfig(
+        level=level,
+        format=log_format,
+        stream=sys.stderr,
+    )
+
+    # Suppress noisy third-party loggers unless in debug mode
+    if not debug:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("openai").setLevel(logging.WARNING)
+        logging.getLogger("anthropic").setLevel(logging.WARNING)
+
+
+# Use context object to pass options to subcommands
+class Context:
+    """Context object for passing options to subcommands."""
+
+    def __init__(self) -> None:
+        self.verbose: bool = False
+        self.debug: bool = False
+
+
+pass_context = click.make_pass_decorator(Context, ensure=True)
 
 
 @click.group()
 @click.version_option(version="0.1.0", prog_name="claudsidian")
-def cli() -> None:
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+@click.option("--debug", "-d", is_flag=True, help="Enable debug output (very verbose)")
+@click.pass_context
+def cli(ctx: click.Context, verbose: bool, debug: bool) -> None:
     """Claudsidian - AI-powered knowledge capture for Obsidian."""
-    pass
+    ctx.ensure_object(Context)
+    ctx.obj.verbose = verbose
+    ctx.obj.debug = debug
+    setup_logging(verbose=verbose, debug=debug)
 
 
 # Add capture command to CLI
@@ -26,6 +83,31 @@ cli.add_command(status)
 
 # Add serve command to CLI
 cli.add_command(serve)
+
+# Add watch command to CLI
+cli.add_command(watch)
+
+
+def _get_queue() -> CaptureQueue:
+    """Get the capture queue.
+
+    Returns:
+        CaptureQueue instance
+
+    Raises:
+        SystemExit: If configuration is not set up
+    """
+    if not config_exists():
+        click.secho("Error: Configuration not found. Run 'claudsidian config init' first.", fg="red")
+        sys.exit(1)
+
+    cfg = load_config()
+    if cfg is None:
+        click.secho("Error: Failed to load configuration.", fg="red")
+        sys.exit(1)
+
+    queue_path = Path(cfg.vault_path) / ".claudsidian" / "queue.json"
+    return CaptureQueue(queue_path)
 
 
 @cli.group()
@@ -51,11 +133,47 @@ def queue_list(status: str | None) -> None:
         claudsidian queue list
         claudsidian queue list --status failed
     """
+    capture_queue = _get_queue()
+    items = capture_queue.get_all()
+
+    # Filter by status if specified
     if status:
-        click.echo(f"Queue items with status: {status}")
-    else:
-        click.echo("All queue items:")
-    # TODO: Implement queue list logic
+        status_enum = QueueStatus(status)
+        items = [item for item in items if item.status == status_enum]
+
+    if not items:
+        if status:
+            click.echo(f"No items with status '{status}' in queue.")
+        else:
+            click.echo("Queue is empty.")
+        return
+
+    # Display items
+    click.echo(f"\nQueue items ({len(items)}):\n")
+    click.echo(f"{'ID':<36} {'Status':<12} {'URL':<50} {'Attempts'}")
+    click.echo("-" * 110)
+
+    for item in items:
+        url_display = str(item.request.url)[:50]
+        if len(str(item.request.url)) > 50:
+            url_display = url_display[:47] + "..."
+
+        status_color = {
+            QueueStatus.PENDING: "yellow",
+            QueueStatus.PROCESSING: "blue",
+            QueueStatus.COMPLETED: "green",
+            QueueStatus.FAILED: "red",
+        }.get(item.status, "white")
+
+        click.echo(
+            f"{str(item.id):<36} "
+            f"{click.style(item.status.value, fg=status_color):<22} "
+            f"{url_display:<50} "
+            f"{item.attempts}"
+        )
+
+        if item.error:
+            click.echo(f"  └─ Error: {item.error[:70]}...")
 
 
 @queue.command("retry")
@@ -71,13 +189,43 @@ def queue_retry(item_id: str | None, retry_all: bool) -> None:
         claudsidian queue retry abc123
         claudsidian queue retry --all
     """
+    capture_queue = _get_queue()
+
     if retry_all:
-        click.echo("Retrying all failed items...")
+        # Get all failed items
+        items = [item for item in capture_queue.get_all() if item.status == QueueStatus.FAILED]
+
+        if not items:
+            click.echo("No failed items to retry.")
+            return
+
+        count = 0
+        for item in items:
+            item.status = QueueStatus.PENDING
+            capture_queue.update(item)
+            count += 1
+
+        click.secho(f"Reset {count} items to pending status.", fg="green")
+        click.echo("Run 'claudsidian serve' to process them.")
+
     elif item_id:
-        click.echo(f"Retrying item: {item_id}")
+        item = capture_queue.get_by_id(item_id)
+
+        if not item:
+            click.secho(f"Error: Item with ID '{item_id}' not found.", fg="red")
+            sys.exit(1)
+
+        if item.status == QueueStatus.COMPLETED:
+            click.echo("Item already completed.")
+            return
+
+        item.status = QueueStatus.PENDING
+        capture_queue.update(item)
+        click.secho(f"Reset item {item_id} to pending status.", fg="green")
+
     else:
-        click.echo("Error: Specify an item ID or use --all flag")
-    # TODO: Implement queue retry logic
+        click.secho("Error: Specify an item ID or use --all flag.", fg="red")
+        sys.exit(1)
 
 
 @queue.command("clear")
@@ -95,8 +243,41 @@ def queue_clear(status: str) -> None:
         claudsidian queue clear --status failed
         claudsidian queue clear --status all
     """
-    click.echo(f"Clearing {status} items...")
-    # TODO: Implement queue clear logic
+    capture_queue = _get_queue()
+    items = capture_queue.get_all()
+
+    if status == "completed":
+        count = capture_queue.clear_completed()
+    elif status == "failed":
+        to_remove = [item for item in items if item.status == QueueStatus.FAILED]
+        count = 0
+        for item in to_remove:
+            if capture_queue.remove(str(item.id)):
+                count += 1
+    else:  # all
+        count = 0
+        for item in items:
+            if capture_queue.remove(str(item.id)):
+                count += 1
+
+    click.secho(f"Cleared {count} items from queue.", fg="green")
+
+
+@queue.command("remove")
+@click.argument("item_id")
+def queue_remove(item_id: str) -> None:
+    """Remove a specific item from the queue.
+
+    Examples:
+        claudsidian queue remove abc123
+    """
+    capture_queue = _get_queue()
+
+    if capture_queue.remove(item_id):
+        click.secho(f"Removed item {item_id} from queue.", fg="green")
+    else:
+        click.secho(f"Error: Item with ID '{item_id}' not found.", fg="red")
+        sys.exit(1)
 
 
 

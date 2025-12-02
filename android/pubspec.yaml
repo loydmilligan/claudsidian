@@ -1,0 +1,43 @@
+name: claudsidian_mobile
+description: Mobile companion for Claudsidian - share URLs to capture
+
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Share handling for receiving shared URLs
+  receive_sharing_intent: ^1.6.7
+
+  # mDNS/Service discovery
+  nsd: ^2.1.0
+
+  # HTTP client for API calls
+  http: ^1.2.0
+
+  # Local storage for offline queue
+  shared_preferences: ^2.2.2
+
+  # JSON serialization
+  json_annotation: ^4.8.1
+
+  # Material design icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.1
+  json_serializable: ^6.7.1
+  build_runner: ^2.4.8
+
+flutter:
+  uses-material-design: true

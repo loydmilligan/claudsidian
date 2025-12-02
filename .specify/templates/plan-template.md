@@ -29,9 +29,11 @@
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design. Re-check at end of EVERY implementation phase (see Phase Completion Checklist in constitution).*
 
 [Gates determined based on constitution file]
+
+**Phase Completion Reminder**: At the end of each phase, review the Phase Completion Checklist in `.specify/memory/constitution.md` to ensure integration, verification, and constitution compliance before proceeding.
 
 ## Project Structure
 

@@ -97,6 +97,11 @@ Examples of foundational tasks (adjust based on your project):
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
+**Phase Completion (Constitution Principle VIII)**:
+- [ ] Integration verified: All components wired into main application flow
+- [ ] End-to-end verification: Feature tested with realistic inputs
+- [ ] Constitution review: All 8 principles checked
+
 ---
 
 ## Phase 4: User Story 2 - [Title] (Priority: P2)
@@ -119,6 +124,11 @@ Examples of foundational tasks (adjust based on your project):
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
+**Phase Completion (Constitution Principle VIII)**:
+- [ ] Integration verified: All components wired into main application flow
+- [ ] End-to-end verification: Feature tested with realistic inputs
+- [ ] Constitution review: All 8 principles checked
+
 ---
 
 ## Phase 5: User Story 3 - [Title] (Priority: P3)
@@ -140,9 +150,14 @@ Examples of foundational tasks (adjust based on your project):
 
 **Checkpoint**: All user stories should now be independently functional
 
+**Phase Completion (Constitution Principle VIII)**:
+- [ ] Integration verified: All components wired into main application flow
+- [ ] End-to-end verification: Feature tested with realistic inputs
+- [ ] Constitution review: All 8 principles checked
+
 ---
 
-[Add more user story phases as needed, following the same pattern]
+[Add more user story phases as needed, following the same pattern. Each phase MUST include the Phase Completion checklist above.]
 
 ---
 

@@ -28,7 +28,7 @@ pip install -e .
 Run the interactive configuration wizard:
 
 ```bash
-claudsidian config --init
+claudsidian config init
 ```
 
 This will prompt you for:
@@ -116,10 +116,16 @@ claudsidian serve
 claudsidian watch
 
 # Check queue status
-claudsidian queue
+claudsidian queue list
 
 # Retry failed captures
-claudsidian queue retry
+claudsidian queue retry --all
+
+# Enable verbose logging (helpful for troubleshooting)
+claudsidian -v capture <url>
+
+# Enable debug logging (very detailed)
+claudsidian -d capture <url>
 ```
 
 ## Folder Structure
