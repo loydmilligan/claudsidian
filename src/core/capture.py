@@ -20,7 +20,7 @@ import httpx
 
 from src.models.capture import CaptureRequest
 from src.models.config import Configuration
-from src.models.note import Note, Frontmatter
+from src.models.note import Note, Frontmatter, AIMetadata, AICallInfo
 from src.models.queue import QueueItem, QueueStatus
 from src.core.content_type import ContentType, detect_content_type
 from src.core.extractors.article import ArticleExtractor, ArticleContent
@@ -29,7 +29,7 @@ from src.core.extractors.news import NewsExtractor, NewsContent
 from src.core.extractors.printable import PrintableExtractor, PrintableContent
 from src.core.extractors.walkthrough import WalkthroughExtractor, WalkthroughContent
 from src.core.extractors.youtube import YouTubeExtractor, YouTubeContent
-from src.core.ai.router import AIRouter, AIRouterError
+from src.core.ai.router import AIRouter, AIRouterError, AIResponse
 from src.core.ai.prompts import get_summarization_prompt, get_tag_generation_prompt
 from src.core.vault.writer import VaultWriter
 from src.core.vault.backlinks import BacklinkFinder
@@ -225,8 +225,8 @@ class CaptureService:
 
             # Step 4: Generate summary and tags via AI
             try:
-                summary = await self._generate_summary(content_for_ai, content_type.value)
-                tags = await self._generate_tags(content_for_ai, title)
+                summary_response = await self._generate_summary(content_for_ai, content_type.value)
+                tags, tags_response = await self._generate_tags(content_for_ai, title)
             except AIRouterError as e:
                 # AI errors should trigger retry (could be temporary API issues)
                 logger.error(f"AI processing error: {e}")
@@ -234,6 +234,9 @@ class CaptureService:
                     request,
                     f"AI processing error: {str(e)}"
                 )
+
+            # Extract summary text for use in note
+            summary = summary_response.content
 
             # Step 5: Find backlinks
             related_notes = self._backlinks.find_related(tags, min_shared=2)
@@ -277,13 +280,29 @@ class CaptureService:
                     backlinks_section
                 )
 
-            # Step 7: Create note object
+            # Step 7: Create note object with AI metadata
+            ai_metadata = AIMetadata(
+                summary=AICallInfo(
+                    backend=summary_response.backend,
+                    model=summary_response.model,
+                    temperature=summary_response.temperature,
+                    max_tokens=summary_response.max_tokens
+                ),
+                tags=AICallInfo(
+                    backend=tags_response.backend,
+                    model=tags_response.model,
+                    temperature=tags_response.temperature,
+                    max_tokens=tags_response.max_tokens
+                )
+            )
+
             frontmatter = Frontmatter(
                 source=request.url,
                 captured=request.timestamp,
                 type=content_type,
                 tags=tags,
-                summary=summary
+                summary=summary,
+                ai=ai_metadata
             )
 
             # Get target folder based on content type
@@ -601,7 +620,7 @@ class CaptureService:
         # Auto-detect
         return detect_content_type(url, content)
 
-    async def _generate_summary(self, content: str, content_type: str) -> str:
+    async def _generate_summary(self, content: str, content_type: str) -> AIResponse:
         """Generate AI summary of content.
 
         Args:
@@ -609,7 +628,7 @@ class CaptureService:
             content_type: Type of content (article, video, repo, etc.)
 
         Returns:
-            Generated summary text
+            AIResponse with summary and metadata
 
         Raises:
             AIRouterError: If AI processing fails
@@ -627,16 +646,18 @@ class CaptureService:
             content_type
         )
 
-        summary = await self._ai_router.route_request(
+        response = await self._ai_router.route_request(
             task_type="summarize_long",
             prompt=user_prompt,
             system_prompt=system_prompt,
             temperature=0.7
         )
 
-        return summary.strip()
+        # Clean up the content
+        response.content = response.content.strip()
+        return response
 
-    async def _generate_tags(self, content: str, title: str) -> list[str]:
+    async def _generate_tags(self, content: str, title: str) -> tuple[list[str], AIResponse]:
         """Generate AI tags for content.
 
         Args:
@@ -644,7 +665,7 @@ class CaptureService:
             title: Title of the content
 
         Returns:
-            List of generated tags
+            Tuple of (tags list, AIResponse with metadata)
 
         Raises:
             AIRouterError: If AI processing fails
@@ -660,7 +681,7 @@ class CaptureService:
             title
         )
 
-        tags_csv = await self._ai_router.route_request(
+        response = await self._ai_router.route_request(
             task_type="tagging",
             prompt=user_prompt,
             system_prompt=system_prompt,
@@ -668,11 +689,11 @@ class CaptureService:
         )
 
         # Parse comma-separated tags
-        tags = [tag.strip() for tag in tags_csv.split(',') if tag.strip()]
+        tags = [tag.strip() for tag in response.content.split(',') if tag.strip()]
 
         logger.info(f"Generated {len(tags)} tags: {', '.join(tags[:5])}...")
 
-        return tags
+        return tags, response
 
     def _format_note_content(
         self,

@@ -12,6 +12,7 @@ Features:
 import asyncio
 import logging
 import random
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.models.config import Configuration
@@ -19,6 +20,17 @@ from src.core.ai.openrouter import OpenRouterClient, OpenRouterError
 from src.core.ai.claude import ClaudeClient, ClaudeAPIError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AIResponse:
+    """Response from an AI request with metadata."""
+
+    content: str
+    backend: str  # "claude" or "openrouter"
+    model: str  # e.g., "claude-sonnet-4-20250514" or "anthropic/claude-3-haiku"
+    temperature: float
+    max_tokens: int
 
 
 # Rate limit retry configuration (T083)
@@ -243,13 +255,20 @@ class AIRouter:
             raise last_error
         raise AIRouterError(f"Unexpected: no response after {MAX_RETRIES} attempts")
 
+    def _get_model_name(self, backend: str, client: Any) -> str:
+        """Get the model name from a client."""
+        if backend == "claude":
+            return client.default_model
+        else:
+            return client.model
+
     async def route_request(
         self,
         task_type: str,
         prompt: str,
         system_prompt: Optional[str] = None,
         **kwargs: Any
-    ) -> str:
+    ) -> AIResponse:
         """Route an AI request to the appropriate backend.
 
         Routes the request based on task_type:
@@ -270,7 +289,7 @@ class AIRouter:
                      (e.g., temperature, max_tokens, model)
 
         Returns:
-            The AI response as a string
+            AIResponse with content and metadata about the call
 
         Raises:
             AIRouterError: If all backends fail
@@ -281,6 +300,10 @@ class AIRouter:
 
         if not task_type:
             raise ValueError("Task type cannot be empty")
+
+        # Extract parameters for metadata (with defaults)
+        temperature = kwargs.get("temperature", 0.7)
+        max_tokens = kwargs.get("max_tokens", 1024)
 
         # Normalize task type to lowercase for comparison
         normalized_task = task_type.lower().strip()
@@ -313,11 +336,18 @@ class AIRouter:
                 system_prompt=system_prompt,
                 **kwargs
             )
+            model = self._get_model_name(backend, client)
             logger.info(
-                f"Successfully routed '{task_type}' to {backend}, "
+                f"Successfully routed '{task_type}' to {backend} ({model}), "
                 f"response length: {len(response)}"
             )
-            return response
+            return AIResponse(
+                content=response,
+                backend=backend,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
 
         except (OpenRouterError, ClaudeAPIError) as e:
             primary_error = e
@@ -336,11 +366,18 @@ class AIRouter:
                         system_prompt=system_prompt,
                         **kwargs
                     )
+                    model = self._get_model_name(fallback_backend, fallback_client)
                     logger.info(
-                        f"Fallback to {fallback_backend} succeeded for '{task_type}', "
+                        f"Fallback to {fallback_backend} ({model}) succeeded for '{task_type}', "
                         f"response length: {len(response)}"
                     )
-                    return response
+                    return AIResponse(
+                        content=response,
+                        backend=fallback_backend,
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
 
                 except (OpenRouterError, ClaudeAPIError) as fallback_error:
                     # Both backends failed

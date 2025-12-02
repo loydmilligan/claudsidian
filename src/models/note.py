@@ -9,6 +9,22 @@ from pydantic import BaseModel, Field, HttpUrl
 from src.core.content_type import ContentType
 
 
+class AICallInfo(BaseModel):
+    """Info about a single AI API call."""
+
+    backend: Optional[str] = Field(None, description="Backend used (claude/openrouter)")
+    model: Optional[str] = Field(None, description="Model identifier")
+    temperature: Optional[float] = Field(None, description="Sampling temperature")
+    max_tokens: Optional[int] = Field(None, description="Max tokens requested")
+
+
+class AIMetadata(BaseModel):
+    """Metadata about AI models used during capture."""
+
+    summary: Optional[AICallInfo] = Field(None, description="Summary generation call info")
+    tags: Optional[AICallInfo] = Field(None, description="Tag generation call info")
+
+
 class Frontmatter(BaseModel):
     """
     YAML frontmatter metadata for a note.
@@ -19,6 +35,7 @@ class Frontmatter(BaseModel):
         type: Classification of the content type
         tags: Auto-generated tags for organizing and finding notes
         summary: Optional one-line summary for preview purposes
+        ai: Metadata about AI models used during capture
     """
 
     source: HttpUrl = Field(..., description="Original URL where content was captured")
@@ -27,6 +44,9 @@ class Frontmatter(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Auto-generated tags")
     summary: Optional[str] = Field(
         None, description="One-line summary for preview purposes"
+    )
+    ai: Optional[AIMetadata] = Field(
+        None, description="AI models used during capture"
     )
 
     model_config = {
@@ -132,6 +152,36 @@ class Note(BaseModel):
         # Only include summary if it's not None
         if self.frontmatter.summary is not None:
             frontmatter_dict["summary"] = self.frontmatter.summary
+
+        # Include AI metadata if present
+        if self.frontmatter.ai is not None:
+            ai_dict = {}
+            if self.frontmatter.ai.summary:
+                summary_dict = {}
+                if self.frontmatter.ai.summary.backend:
+                    summary_dict["backend"] = self.frontmatter.ai.summary.backend
+                if self.frontmatter.ai.summary.model:
+                    summary_dict["model"] = self.frontmatter.ai.summary.model
+                if self.frontmatter.ai.summary.temperature is not None:
+                    summary_dict["temperature"] = self.frontmatter.ai.summary.temperature
+                if self.frontmatter.ai.summary.max_tokens is not None:
+                    summary_dict["max_tokens"] = self.frontmatter.ai.summary.max_tokens
+                if summary_dict:
+                    ai_dict["summary"] = summary_dict
+            if self.frontmatter.ai.tags:
+                tags_dict = {}
+                if self.frontmatter.ai.tags.backend:
+                    tags_dict["backend"] = self.frontmatter.ai.tags.backend
+                if self.frontmatter.ai.tags.model:
+                    tags_dict["model"] = self.frontmatter.ai.tags.model
+                if self.frontmatter.ai.tags.temperature is not None:
+                    tags_dict["temperature"] = self.frontmatter.ai.tags.temperature
+                if self.frontmatter.ai.tags.max_tokens is not None:
+                    tags_dict["max_tokens"] = self.frontmatter.ai.tags.max_tokens
+                if tags_dict:
+                    ai_dict["tags"] = tags_dict
+            if ai_dict:
+                frontmatter_dict["ai"] = ai_dict
 
         # Serialize frontmatter to YAML
         yaml_content = yaml.dump(
