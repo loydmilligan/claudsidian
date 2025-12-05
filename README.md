@@ -4,14 +4,27 @@ AI-powered knowledge capture for Obsidian. Capture URLs from anywhere and automa
 
 ## Features
 
+### Core Capture
 - **One-click capture** from browser extension
 - **CLI capture** for terminal users
 - **Inbox file watching** - drop URLs in a file, they get processed automatically
 - **Android share target** - capture from mobile via local network
 - **Smart content detection** - articles, YouTube videos, GitHub repos, news, tutorials, 3D models
-- **AI-powered summaries** - using Claude or OpenRouter
+- **AI-powered summaries** - using OpenRouter (default) or Claude
 - **Automatic tagging** - relevant tags generated from content
 - **Backlink discovery** - finds related notes in your vault
+
+### Model Comparison & Analytics
+- **A/B model testing** - compare different AI models side-by-side
+- **Performance tracking** - automatic cost, speed, and quality metrics
+- **OPUS efficiency metric** - quality-adjusted cost efficiency ranking
+- **User ratings** - rate notes to build quality feedback loop
+- **Quality reports** - analyze model performance over time
+
+### 3D Model Extraction
+- **Playwright browser automation** - captures Thingiverse, Printables sites
+- **Vision AI analysis** - extracts model info from screenshots
+- **Non-headless mode** - bypasses Cloudflare bot protection
 
 ## Installation
 
@@ -124,6 +137,43 @@ Show system status.
 claudsidian status                     # Show config, server, queue status
 ```
 
+### `claudsidian compare`
+
+Compare AI models for quality and cost.
+
+```bash
+claudsidian compare models                          # List available model presets
+claudsidian compare run                             # Run comparison with defaults
+claudsidian compare run -s1 openrouter-haiku -s2 openrouter-grok-fast
+claudsidian compare run --type article --count 2   # Test specific content type
+claudsidian compare run --include-printable        # Include 3D model tests (requires Playwright)
+claudsidian compare cleanup                         # Remove test notes
+claudsidian compare cleanup --force-all            # Remove all test notes including unrated
+```
+
+### `claudsidian ratings`
+
+Manage ratings and view performance analytics.
+
+```bash
+claudsidian ratings performance                    # Show model performance summary
+claudsidian ratings performance -m "x-ai/grok-4.1-fast"  # Stats for specific model
+claudsidian ratings recent                         # Show recent captures with costs
+claudsidian ratings process                        # Collect user ratings from notes
+claudsidian ratings report                         # Generate quality report
+claudsidian ratings stats                          # Show rating statistics
+claudsidian ratings list                           # List all ratings
+```
+
+### `claudsidian test-capture`
+
+Test capture functionality.
+
+```bash
+claudsidian test-capture                           # Run test captures
+claudsidian test-capture --type video --count 2   # Test specific content type
+```
+
 ### Global Options
 
 ```bash
@@ -189,12 +239,39 @@ Config file: `~/.config/claudsidian/config.json`
 | `claude_api_key` | Anthropic API key | - |
 | `openrouter_api_key` | OpenRouter API key | - |
 | `server_port` | Server port | 8765 |
+| `vision_model` | Model for image analysis | `google/gemini-2.0-flash-exp:free` |
 | `folders.article` | Article notes folder | `Learning` |
 | `folders.video` | Video notes folder | `Videos` |
 | `folders.repo` | Repository notes folder | `Projects` |
 | `folders.news` | News notes folder | `News` |
 | `folders.walkthrough` | Tutorial notes folder | `Guides` |
 | `folders.printable` | 3D model notes folder | `3D-Models` |
+
+## Default AI Models
+
+Claudsidian uses OpenRouter by default (no direct Claude API calls):
+
+| Task | Default Model | Model ID |
+|------|---------------|----------|
+| Summary | Grok 4.1 Fast | `x-ai/grok-4.1-fast` |
+| Tags | Claude 3 Haiku | `anthropic/claude-3-haiku` |
+| Vision | Gemini Flash | `google/gemini-2.0-flash-exp:free` |
+| Quality Analysis | Gemini Flash | `google/gemini-2.0-flash-exp:free` |
+
+Available model presets: `claudsidian compare models`
+
+## Performance Tracking
+
+Every capture automatically tracks:
+- **Cost** - API call cost in USD
+- **Time** - Response time in seconds
+- **Tokens** - Input/output token counts
+- **Quality** - Scores from compare runs (1-5)
+- **OPUS** - Efficiency metric: `(quality/5) / cost`
+
+View stats: `claudsidian ratings performance`
+
+Data stored in: `{vault}/.claudsidian/model_performance.json`
 
 ## Troubleshooting
 
@@ -223,6 +300,14 @@ claudsidian -d capture https://example.com
 - Python 3.11+
 - An Obsidian vault
 - At least one API key (Claude or OpenRouter)
+
+### Optional Dependencies
+
+- **Playwright** - For 3D model capture (Thingiverse, Printables)
+  ```bash
+  pip install playwright
+  playwright install chromium
+  ```
 
 ## License
 

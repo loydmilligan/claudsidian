@@ -128,6 +128,60 @@ claudsidian -v capture <url>
 claudsidian -d capture <url>
 ```
 
+## Model Comparison
+
+Compare different AI models to find the best cost/quality balance:
+
+```bash
+# List available models
+claudsidian compare models
+
+# Run comparison (default models)
+claudsidian compare run
+
+# Compare specific models
+claudsidian compare run -s1 openrouter-haiku -s2 openrouter-grok-fast
+
+# Test specific content type
+claudsidian compare run --type article --count 2
+
+# Include 3D model tests (requires Playwright)
+claudsidian compare run --include-printable
+
+# Clean up test notes
+claudsidian compare cleanup
+```
+
+## Performance Analytics
+
+Track AI model performance over time:
+
+```bash
+# View model performance summary
+claudsidian ratings performance
+
+# View stats for specific model
+claudsidian ratings performance -m "x-ai/grok-4.1-fast"
+
+# View recent captures with costs
+claudsidian ratings recent
+
+# Process user ratings from notes
+claudsidian ratings process
+
+# Generate quality report
+claudsidian ratings report
+```
+
+## User Ratings
+
+Rate captured notes to improve model selection:
+
+1. Open any captured note in Obsidian
+2. Edit the `user_rating` field in frontmatter (1-5)
+3. Run `claudsidian ratings process` to collect ratings
+4. View results with `claudsidian ratings stats`
+
 ## Folder Structure
 
 After capturing different content types, your vault will look like:

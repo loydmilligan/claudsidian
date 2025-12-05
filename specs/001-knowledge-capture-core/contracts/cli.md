@@ -188,14 +188,194 @@ Queue: 2 pending, 0 failed
 
 ---
 
+### compare
+
+Compare AI models for quality and cost.
+
+```
+claudsidian compare <subcommand> [options]
+```
+
+**Subcommands**:
+
+#### `compare models`
+List available model presets.
+
+```
+claudsidian compare models
+```
+
+**Output**:
+```
+Available Model Presets:
+  claude-sonnet-4      → claude-sonnet-4-20250514
+  openrouter-haiku     → anthropic/claude-3-haiku
+  openrouter-grok-fast → x-ai/grok-4.1-fast
+  ...
+```
+
+#### `compare run`
+Run model comparison captures.
+
+```
+claudsidian compare run [options]
+```
+
+**Options**:
+- `--type, -t <type>`: Only test this content type
+- `--count, -n <num>`: Fixtures per type (default: 1)
+- `--summary-model-1, -s1 <model>`: First summary model (default: openrouter-grok-fast)
+- `--summary-model-2, -s2 <model>`: Second summary model (default: openrouter-haiku)
+- `--tags-model-1, -t1 <model>`: First tags model (default: openrouter-haiku)
+- `--tags-model-2, -t2 <model>`: Second tags model (default: openrouter-haiku)
+- `--comparison-model, -c <model>`: Model for quality analysis
+- `--skip-quality`: Skip AI quality comparison
+- `--require-gold`: Only analyze fixtures with gold standards
+- `--include-printable`: Include printable content (requires Playwright)
+- `--prefix, -p <prefix>`: Prefix for test notes (default: _CMP_)
+
+**Output**:
+```
+Model Comparison Test
+Fixtures: 5 × 2 runs = 10 captures
+
+  Run A: openrouter-grok-fast / openrouter-haiku
+  Run B: openrouter-haiku / openrouter-haiku
+
+Capturing...
+✓ Article: example-article (Run A: 2.3s, Run B: 1.8s)
+
+Summary:
+  Run A: 5 captures, $0.0042
+  Run B: 5 captures, $0.0018
+
+Report:
+  reports/2025-12-05_14-30-00/report.html
+```
+
+#### `compare cleanup`
+Remove comparison test notes.
+
+```
+claudsidian compare cleanup [options]
+```
+
+**Options**:
+- `--force-all`: Remove all test notes including unrated ones
+
+---
+
+### ratings
+
+Manage ratings and performance analytics.
+
+```
+claudsidian ratings <subcommand> [options]
+```
+
+**Subcommands**:
+
+#### `ratings performance`
+Show model performance metrics.
+
+```
+claudsidian ratings performance [options]
+```
+
+**Options**:
+- `--model, -m <model>`: Filter by model ID
+
+**Output**:
+```
+Model Performance Summary
+  Total Captures: 25
+  Total Spend: $0.0842
+
+  Model                               Captures   Avg Cost     Avg Time   OPUS
+  --------------------------------------------------------------------------------
+  grok-4.1-fast                       15         $0.0028      4.2s       178.6
+  claude-3-haiku                      10         $0.0012      2.1s       416.7
+
+OPUS = (quality/5) / cost - higher is better
+```
+
+#### `ratings recent`
+Show recent capture performance.
+
+```
+claudsidian ratings recent [options]
+```
+
+**Options**:
+- `--limit, -n <num>`: Number of captures to show (default: 10)
+
+**Output**:
+```
+Recent Captures (10):
+  Time         Title                          Model                Cost       Time
+  -------------------------------------------------------------------------------------
+  2025-12-05   Example Article                grok-4.1-fast        $0.0028    4.2s  ✓
+```
+
+#### `ratings process`
+Collect user ratings from vault notes.
+
+```
+claudsidian ratings process [options]
+```
+
+**Options**:
+- `--dry-run`: Show what would be processed without saving
+
+#### `ratings report`
+Generate quality report.
+
+```
+claudsidian ratings report [options]
+```
+
+**Options**:
+- `--output, -o <path>`: Output file for report
+
+#### `ratings stats`
+Show rating statistics.
+
+#### `ratings list`
+List all ratings.
+
+```
+claudsidian ratings list [options]
+```
+
+**Options**:
+- `--limit, -n <num>`: Number of ratings to show (default: 20)
+- `--model, -m <model>`: Filter by model ID
+
+---
+
+### test-capture
+
+Test capture functionality with sample URLs.
+
+```
+claudsidian test-capture [options]
+```
+
+**Options**:
+- `--type, -t <type>`: Test specific content type
+- `--count, -n <num>`: Number of fixtures to test (default: 1)
+- `--model, -m <model>`: Model to use for capture
+
+---
+
 ## Global Options
 
 Available for all commands:
 
 - `--help, -h`: Show help
-- `--version, -v`: Show version
-- `--config, -c <path>`: Use alternate config file
-- `--verbose`: Enable debug output
+- `--version`: Show version
+- `-v, --verbose`: Enable verbose output (INFO level)
+- `-d, --debug`: Enable debug output (DEBUG level)
 
 ---
 
