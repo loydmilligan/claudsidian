@@ -4,9 +4,18 @@ This module provides a client for interacting with OpenRouter's API,
 which is compatible with the OpenAI SDK.
 """
 
+from dataclasses import dataclass
 from typing import Optional
 
 from openai import AsyncOpenAI, OpenAIError
+
+
+@dataclass
+class OpenRouterResponse:
+    """Response from OpenRouter API with usage metadata."""
+    content: str
+    input_tokens: int
+    output_tokens: int
 
 
 class OpenRouterError(Exception):
@@ -64,7 +73,10 @@ class OpenRouterClient:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1024,
-    ) -> str:
+        enable_reasoning: bool = False,
+        image_data: Optional[str] = None,
+        image_media_type: str = "image/png",
+    ) -> OpenRouterResponse:
         """Get a completion from the OpenRouter API.
 
         Args:
@@ -74,9 +86,12 @@ class OpenRouterClient:
             temperature: Sampling temperature (0.0 to 2.0). Higher values make output
                 more random, lower values more deterministic.
             max_tokens: Maximum number of tokens to generate.
+            enable_reasoning: Enable reasoning mode for models that support it.
+            image_data: Optional base64-encoded image data for vision models.
+            image_media_type: MIME type of the image (default: image/png).
 
         Returns:
-            The completion text from the model.
+            OpenRouterResponse with completion text and token usage.
 
         Raises:
             OpenRouterError: If the API request fails or returns an error.
@@ -89,28 +104,69 @@ class OpenRouterClient:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+
+        # Build user message - with image if provided
+        if image_data:
+            # Multimodal message with image and text
+            user_content = [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{image_media_type};base64,{image_data}"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+            messages.append({"role": "user", "content": user_content})
+        else:
+            messages.append({"role": "user", "content": prompt})
 
         # Use provided model or fall back to instance model
         selected_model = model or self.model
 
         try:
+            # Build extra parameters for OpenRouter
+            extra_body = {}
+            if not enable_reasoning:
+                # Explicitly disable reasoning for models that support it
+                # This ensures we get content in the standard 'content' field
+                extra_body["reasoning"] = {"effort": "none"}
+
             response = await self._client.chat.completions.create(
                 model=selected_model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                extra_body=extra_body if extra_body else None,
             )
 
             # Extract the completion text
             if not response.choices:
                 raise OpenRouterError("No completion choices returned from API")
 
-            content = response.choices[0].message.content
-            if content is None:
-                raise OpenRouterError("Completion content is None")
+            message = response.choices[0].message
+            content = message.content
 
-            return content
+            # For reasoning models (like Gemini-3-Pro-Preview, o1), the actual
+            # response might be in the 'reasoning' field instead of 'content'
+            if not content and hasattr(message, 'reasoning') and message.reasoning:
+                content = message.reasoning
+
+            if not content:
+                raise OpenRouterError("Completion content is empty")
+
+            # Extract token usage
+            input_tokens = response.usage.prompt_tokens if response.usage else 0
+            output_tokens = response.usage.completion_tokens if response.usage else 0
+
+            return OpenRouterResponse(
+                content=content,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens
+            )
 
         except OpenAIError as e:
             raise OpenRouterError(f"OpenRouter API error: {str(e)}") from e

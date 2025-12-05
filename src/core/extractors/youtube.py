@@ -72,10 +72,12 @@ class YouTubeExtractor:
         # Get transcript
         transcript, transcript_text, has_transcript = self._get_transcript(video_id)
 
-        # Get chapters
-        chapters = self._extract_chapters(
-            metadata.get("description", ""), metadata.get("duration", 0)
-        )
+        # Get chapters from yt-dlp metadata first, fallback to description parsing
+        chapters = self._extract_chapters_from_metadata(metadata)
+        if not chapters:
+            chapters = self._extract_chapters_from_description(
+                metadata.get("description", ""), metadata.get("duration", 0)
+            )
 
         return YouTubeContent(
             video_id=video_id,
@@ -138,8 +140,48 @@ class YouTubeExtractor:
             logger.error(f"Error getting transcript for {video_id}: {e}")
             return [], "", False
 
-    def _extract_chapters(self, description: str, duration: int) -> list[Chapter]:
-        """Extract chapters from description or return empty if none found."""
+    def _extract_chapters_from_metadata(self, metadata: dict) -> list[Chapter]:
+        """Extract chapters from yt-dlp metadata.
+
+        yt-dlp provides chapters in the 'chapters' key when available.
+        This is the preferred method as it uses official chapter data.
+
+        Args:
+            metadata: Video metadata from yt-dlp
+
+        Returns:
+            List of Chapter objects, empty if no chapters found
+        """
+        chapters = []
+
+        # yt-dlp provides chapters as a list of dicts with 'start_time', 'end_time', and 'title'
+        if "chapters" in metadata and metadata["chapters"]:
+            for ch_data in metadata["chapters"]:
+                # yt-dlp chapters have start_time and title at minimum
+                if "start_time" in ch_data and "title" in ch_data:
+                    chapters.append(Chapter(
+                        title=ch_data["title"],
+                        start_time=int(ch_data["start_time"]),
+                        end_time=int(ch_data.get("end_time")) if "end_time" in ch_data else None
+                    ))
+
+            logger.info(f"Extracted {len(chapters)} chapters from yt-dlp metadata")
+
+        return chapters
+
+    def _extract_chapters_from_description(self, description: str, duration: int) -> list[Chapter]:
+        """Extract chapters from video description by parsing timestamps.
+
+        This is a fallback method for when yt-dlp doesn't provide chapter data.
+        Looks for timestamp patterns like "0:00 Introduction" or "1:23:45 - Chapter Title"
+
+        Args:
+            description: Video description text
+            duration: Video duration in seconds
+
+        Returns:
+            List of Chapter objects, empty if no chapters found
+        """
         # Pattern for timestamps like "0:00", "1:23:45"
         timestamp_pattern = r"^(\d{1,2}:)?(\d{1,2}):(\d{2})\s+[-–—]?\s*(.+?)$"
 
@@ -162,7 +204,17 @@ class YouTubeExtractor:
             else:
                 chapter.end_time = duration
 
+        if chapters:
+            logger.info(f"Extracted {len(chapters)} chapters from description")
+
         return chapters
+
+    def _extract_chapters(self, description: str, duration: int) -> list[Chapter]:
+        """DEPRECATED: Use _extract_chapters_from_description instead.
+
+        Kept for backwards compatibility.
+        """
+        return self._extract_chapters_from_description(description, duration)
 
     def format_timestamp(self, seconds: float) -> str:
         """Format seconds as HH:MM:SS or MM:SS."""

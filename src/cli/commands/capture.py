@@ -9,6 +9,7 @@ import click
 from src.core.config import config_exists, load_config
 from src.core.capture import CaptureService, CaptureResult
 from src.models.capture import CaptureRequest, CaptureSource, ForceType
+from src.models.config import ModelConfig
 
 
 # Exit codes
@@ -27,13 +28,26 @@ VALID_TYPES = ["article", "video", "repo", "news", "walkthrough", "printable"]
 @click.option("--type", "-t", "force_type", type=click.Choice(VALID_TYPES), help="Force content type")
 @click.option("--async", "-a", "run_async", is_flag=True, help="Return immediately, process in background")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress output except errors")
-def capture(url: str, force_type: str | None, run_async: bool, quiet: bool) -> None:
+@click.option("--cheap", "-c", is_flag=True, help="Use cheap model (Haiku) for all AI calls")
+@click.option("--summary-model", "-s", help="Model for summary (e.g., claude-sonnet-4, openrouter-haiku)")
+@click.option("--tags-model", "-T", help="Model for tags (e.g., openrouter-haiku, openrouter-gpt4o-mini)")
+def capture(
+    url: str,
+    force_type: str | None,
+    run_async: bool,
+    quiet: bool,
+    cheap: bool,
+    summary_model: str | None,
+    tags_model: str | None
+) -> None:
     """Capture a URL and create a note in the vault.
 
     Examples:
         claudsidian capture https://example.com/article
         claudsidian capture https://youtube.com/watch?v=xxx -t video
         claudsidian capture https://github.com/user/repo --quiet
+        claudsidian capture https://example.com/article --cheap
+        claudsidian capture https://example.com/article --summary-model openrouter-haiku
     """
     # Validate config
     if not config_exists():
@@ -60,6 +74,23 @@ def capture(url: str, force_type: str | None, run_async: bool, quiet: bool) -> N
         if not quiet:
             click.echo(click.style("⚠ Warning: ", fg="yellow") + "Async mode not yet implemented.")
 
+    # Build model config if any overrides specified
+    model_config: ModelConfig | None = None
+    if cheap or summary_model or tags_model:
+        model_config = ModelConfig(
+            cheap_mode=cheap,
+            summary_model=summary_model or config.models.summary_model,
+            tags_model=tags_model or config.models.tags_model
+        )
+        if not quiet:
+            if cheap:
+                click.echo(click.style("$ ", fg="cyan") + "Using cheap mode (Haiku for all calls)")
+            else:
+                if summary_model:
+                    click.echo(click.style("$ ", fg="cyan") + f"Summary model: {summary_model}")
+                if tags_model:
+                    click.echo(click.style("$ ", fg="cyan") + f"Tags model: {tags_model}")
+
     # Create capture request
     request = CaptureRequest(
         url=url,
@@ -69,17 +100,21 @@ def capture(url: str, force_type: str | None, run_async: bool, quiet: bool) -> N
     )
 
     # Run capture
-    result = asyncio.run(_do_capture(config, request))
+    result = asyncio.run(_do_capture(config, request, model_config))
 
     # Handle result
     _handle_result(result, quiet)
 
 
-async def _do_capture(config, request: CaptureRequest) -> CaptureResult:
+async def _do_capture(
+    config,
+    request: CaptureRequest,
+    model_config: ModelConfig | None = None
+) -> CaptureResult:
     """Execute the capture operation."""
     service = CaptureService(config)
     try:
-        return await service.capture(request)
+        return await service.capture(request, model_config=model_config)
     finally:
         await service.close()
 

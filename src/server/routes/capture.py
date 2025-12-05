@@ -157,7 +157,7 @@ async def capture_url(request: CaptureRequestBody) -> CaptureResponseBody:
         )
 
     # Validate source
-    valid_sources = ["browser", "cli", "inbox", "android"]
+    valid_sources = ["browser", "cli", "inbox", "android", "mobile"]
     if request.source not in valid_sources:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -211,6 +211,7 @@ async def capture_url(request: CaptureRequestBody) -> CaptureResponseBody:
         "cli": CaptureSource.CLI,
         "inbox": CaptureSource.INBOX,
         "android": CaptureSource.ANDROID,
+        "mobile": CaptureSource.ANDROID,  # Flutter app sends 'mobile'
     }
 
     # Map force_type string to enum

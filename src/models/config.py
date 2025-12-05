@@ -9,6 +9,88 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+# Available model presets
+AVAILABLE_MODELS = {
+    # Claude models (via Anthropic API)
+    "claude-sonnet-4": "claude-sonnet-4-20250514",
+    "claude-haiku-3": "claude-3-haiku-20240307",
+    # OpenRouter models
+    "openrouter-haiku": "anthropic/claude-3-haiku",
+    "openrouter-sonnet": "anthropic/claude-3.5-sonnet",
+    "openrouter-gpt4o-mini": "openai/gpt-4o-mini",
+    "openrouter-gemini-flash": "google/gemini-flash-1.5",
+    "openrouter-grok-fast": "x-ai/grok-4.1-fast",
+}
+
+# Default model assignments
+DEFAULT_SUMMARY_MODEL = "openrouter-grok-fast"  # x-ai/grok-4.1-fast
+DEFAULT_TAGS_MODEL = "openrouter-haiku"
+CHEAP_MODE_MODEL = "openrouter-haiku"
+
+
+class ModelConfig(BaseModel):
+    """Configuration for AI model selection per task.
+
+    Attributes:
+        summary_model: Model to use for summarization (default: claude-sonnet-4)
+        tags_model: Model to use for tag generation (default: openrouter-haiku)
+        cheap_mode: If True, use cheapest model for all tasks (overrides above)
+    """
+
+    summary_model: str = Field(
+        default=DEFAULT_SUMMARY_MODEL,
+        description="Model preset for summarization (e.g., claude-sonnet-4, openrouter-haiku)"
+    )
+    tags_model: str = Field(
+        default=DEFAULT_TAGS_MODEL,
+        description="Model preset for tag generation"
+    )
+    cheap_mode: bool = Field(
+        default=False,
+        description="Use cheapest model (openrouter-haiku) for all tasks"
+    )
+
+    def get_summary_model(self) -> tuple[str, str]:
+        """Get backend and model ID for summarization.
+
+        Returns:
+            Tuple of (backend, model_id) where backend is 'claude' or 'openrouter'
+        """
+        if self.cheap_mode:
+            return self._resolve_model(CHEAP_MODE_MODEL)
+        return self._resolve_model(self.summary_model)
+
+    def get_tags_model(self) -> tuple[str, str]:
+        """Get backend and model ID for tag generation.
+
+        Returns:
+            Tuple of (backend, model_id) where backend is 'claude' or 'openrouter'
+        """
+        if self.cheap_mode:
+            return self._resolve_model(CHEAP_MODE_MODEL)
+        return self._resolve_model(self.tags_model)
+
+    def _resolve_model(self, preset: str) -> tuple[str, str]:
+        """Resolve a model preset to backend and model ID.
+
+        Args:
+            preset: Model preset name (e.g., 'claude-sonnet-4', 'openrouter-haiku')
+
+        Returns:
+            Tuple of (backend, model_id)
+        """
+        model_id = AVAILABLE_MODELS.get(preset, preset)
+        if preset.startswith("claude-"):
+            return ("claude", model_id)
+        elif preset.startswith("openrouter-"):
+            return ("openrouter", model_id)
+        # If unknown preset, assume it's a raw model ID - try to guess backend
+        elif "/" in preset:
+            return ("openrouter", preset)
+        else:
+            return ("claude", preset)
+
+
 class FolderConfig(BaseModel):
     """Mapping of content types to folder paths in the vault.
 
@@ -39,6 +121,8 @@ class Configuration(BaseModel):
         server_port: Port number for the local HTTP server
         inbox_file: Name of the inbox file in the vault root
         folders: Folder configuration for different content types
+        models: AI model configuration for different tasks
+        vision_model: Model to use for vision/image analysis (default: claude for Claude API)
     """
 
     vault_path: str = Field(
@@ -66,6 +150,14 @@ class Configuration(BaseModel):
     folders: FolderConfig = Field(
         default_factory=FolderConfig,
         description="Content type to folder mapping"
+    )
+    models: ModelConfig = Field(
+        default_factory=ModelConfig,
+        description="AI model configuration for different tasks"
+    )
+    vision_model: str = Field(
+        default="google/gemini-2.0-flash-exp:free",
+        description="Model for vision/image analysis. Use 'claude' for Claude API or OpenRouter model ID like 'qwen/qwen3-vl-32b-instruct'"
     )
 
     @field_validator('vault_path')

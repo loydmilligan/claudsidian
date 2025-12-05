@@ -7,10 +7,13 @@ from pathlib import Path
 import click
 
 from src.cli.commands.capture import capture
+from src.cli.commands.compare import compare
 from src.cli.commands.config import config
+from src.cli.commands.ratings import ratings
 from src.cli.commands.serve import serve
 from src.cli.commands.status import status
 from src.cli.commands.test import test
+from src.cli.commands.test_capture import test_capture
 from src.cli.commands.watch import watch
 from src.core.config import config_exists, load_config
 from src.core.queue import CaptureQueue
@@ -90,6 +93,15 @@ cli.add_command(watch)
 
 # Add test command to CLI
 cli.add_command(test)
+
+# Add test-capture command group to CLI
+cli.add_command(test_capture, name="test-capture")
+
+# Add compare command group to CLI
+cli.add_command(compare)
+
+# Add ratings command group to CLI
+cli.add_command(ratings)
 
 
 def _get_queue() -> CaptureQueue:

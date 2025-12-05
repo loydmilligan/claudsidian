@@ -19,7 +19,7 @@ from uuid import uuid4
 import httpx
 
 from src.models.capture import CaptureRequest
-from src.models.config import Configuration
+from src.models.config import Configuration, ModelConfig
 from src.models.note import Note, Frontmatter, AIMetadata, AICallInfo
 from src.models.queue import QueueItem, QueueStatus
 from src.core.content_type import ContentType, detect_content_type
@@ -27,14 +27,21 @@ from src.core.extractors.article import ArticleExtractor, ArticleContent
 from src.core.extractors.github import GitHubExtractor, GitHubContent
 from src.core.extractors.news import NewsExtractor, NewsContent
 from src.core.extractors.printable import PrintableExtractor, PrintableContent
+from src.core.extractors.printable_playwright import (
+    PlaywrightPrintableExtractor,
+    PlaywrightPrintableContent,
+    PLAYWRIGHT_AVAILABLE
+)
 from src.core.extractors.walkthrough import WalkthroughExtractor, WalkthroughContent
 from src.core.extractors.youtube import YouTubeExtractor, YouTubeContent
+from src.core.ai.vision import VisionAnalyzer
 from src.core.ai.router import AIRouter, AIRouterError, AIResponse
 from src.core.ai.prompts import get_summarization_prompt, get_tag_generation_prompt
 from src.core.vault.writer import VaultWriter
 from src.core.vault.backlinks import BacklinkFinder
 from src.core.queue import CaptureQueue
 from src.utils.url import normalize_url
+from src.models.model_performance import ModelPerformanceDB, CapturePerformance
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +54,39 @@ RETRY_HTTP_ERRORS = {403, 429, 500, 502, 503, 504}  # Forbidden, Rate Limit, Ser
 
 # Maximum number of retry attempts
 MAX_RETRY_ATTEMPTS = 3
+
+
+@dataclass
+class AIUsageMetrics:
+    """AI usage metrics for a capture operation."""
+    summary_backend: str = ""
+    summary_model: str = ""
+    summary_input_tokens: int = 0
+    summary_output_tokens: int = 0
+    summary_cost_usd: float = 0.0
+    summary_time_seconds: float = 0.0
+    tags_backend: str = ""
+    tags_model: str = ""
+    tags_input_tokens: int = 0
+    tags_output_tokens: int = 0
+    tags_cost_usd: float = 0.0
+    tags_time_seconds: float = 0.0
+
+    @property
+    def total_input_tokens(self) -> int:
+        return self.summary_input_tokens + self.tags_input_tokens
+
+    @property
+    def total_output_tokens(self) -> int:
+        return self.summary_output_tokens + self.tags_output_tokens
+
+    @property
+    def total_cost_usd(self) -> float:
+        return self.summary_cost_usd + self.tags_cost_usd
+
+    @property
+    def total_time_seconds(self) -> float:
+        return self.summary_time_seconds + self.tags_time_seconds
 
 
 @dataclass
@@ -64,6 +104,7 @@ class CaptureResult:
         existing_note: Path to existing note if duplicate
         queued: Whether the request was queued for retry
         queue_id: ID of the queue item if queued
+        ai_metrics: AI usage metrics (tokens and costs)
     """
 
     success: bool
@@ -76,6 +117,7 @@ class CaptureResult:
     existing_note: str | None = None
     queued: bool = False
     queue_id: str | None = None
+    ai_metrics: AIUsageMetrics | None = None
 
 
 class CaptureService:
@@ -114,19 +156,29 @@ class CaptureService:
         queue_path = Path(config.vault_path) / ".claudsidian" / "queue.json"
         self._queue = CaptureQueue(queue_path)
 
+        # Initialize performance tracking database
+        perf_db_path = Path(config.vault_path) / ".claudsidian" / "model_performance.json"
+        self._performance_db = ModelPerformanceDB(perf_db_path)
+
         # Extractor will be created per-request to avoid connection issues
         self._extractor: ArticleExtractor | None = None
 
         logger.info("Initialized CaptureService")
 
-    async def capture(self, request: CaptureRequest) -> CaptureResult:
+    async def capture(
+        self,
+        request: CaptureRequest,
+        model_config: ModelConfig | None = None,
+        skip_duplicate_check: bool = False,
+        target_folder: str | None = None
+    ) -> CaptureResult:
         """Capture a URL and create a note in the vault.
 
         This is the main entry point for the capture flow. It orchestrates
         all the steps needed to capture a URL and create a note.
 
         Flow:
-        1. Check for duplicates
+        1. Check for duplicates (unless skipped)
         2. Fetch URL content
         3. Detect content type
         4. Extract content using appropriate extractor
@@ -137,6 +189,13 @@ class CaptureService:
 
         Args:
             request: CaptureRequest containing URL and metadata
+            model_config: Optional model configuration override.
+                         If not provided, uses config.models from Configuration.
+                         Use ModelConfig(cheap_mode=True) for cheap captures.
+            skip_duplicate_check: If True, skip duplicate URL checking.
+                         Useful for comparison runs that capture same URL multiple times.
+            target_folder: Override folder for note output. If provided, ignores
+                         content-type-based folder routing. Useful for test notes.
 
         Returns:
             CaptureResult with success status and note information or error details
@@ -153,6 +212,10 @@ class CaptureService:
             ...     print(f"Note created at: {result.note_path}")
             ... else:
             ...     print(f"Error: {result.error}")
+            >>>
+            >>> # Capture with cheap mode (all haiku)
+            >>> cheap_config = ModelConfig(cheap_mode=True)
+            >>> result = await service.capture(request, model_config=cheap_config)
         """
         url = str(request.url)
         logger.info(f"Starting capture for URL: {url}")
@@ -161,16 +224,17 @@ class CaptureService:
             # Normalize URL for duplicate checking
             normalized_url = normalize_url(url)
 
-            # Step 1: Check for duplicates (T031)
-            existing_note = self._check_duplicate(normalized_url)
-            if existing_note:
-                logger.info(f"Duplicate URL found: {existing_note}")
-                return CaptureResult(
-                    success=False,
-                    is_duplicate=True,
-                    existing_note=existing_note,
-                    error=f"URL already captured in note: {existing_note}"
-                )
+            # Step 1: Check for duplicates (T031) - unless skipped for comparison runs
+            if not skip_duplicate_check:
+                existing_note = self._check_duplicate(normalized_url)
+                if existing_note:
+                    logger.info(f"Duplicate URL found: {existing_note}")
+                    return CaptureResult(
+                        success=False,
+                        is_duplicate=True,
+                        existing_note=existing_note,
+                        error=f"URL already captured in note: {existing_note}"
+                    )
 
             # Step 2: Detect content type first (needed to choose extractor)
             # For videos, we detect from URL; for articles, we may refine after fetching
@@ -197,15 +261,21 @@ class CaptureService:
                     title = extracted.title
                 elif content_type == ContentType.PRINTABLE:
                     extracted = await self._fetch_printable_content(url)
-                    content_for_ai = extracted.description
+                    # Handle both PrintableContent and PlaywrightPrintableContent
+                    if isinstance(extracted, PlaywrightPrintableContent):
+                        # Use AI summary from vision analysis as primary content
+                        content_for_ai = extracted.ai_summary or extracted.description
+                    else:
+                        content_for_ai = extracted.description
                     title = extracted.title
                 else:
                     extracted = await self._fetch_article_content(url)
                     content_for_ai = extracted.content
                     title = extracted.title
-                    # Refine content type detection with actual content
-                    content_type = self._detect_content_type(request, url, extracted.content)
-                    logger.info(f"Refined content type: {content_type}")
+                    # Note: We do NOT re-detect content type here because the extracted
+                    # object is ArticleContent. Re-detecting could change type to WALKTHROUGH
+                    # but we don't have WalkthroughContent attributes. If user wants a
+                    # specific type, they should use force_type in the request.
             except httpx.HTTPStatusError as e:
                 return await self._handle_http_error(e, request)
             except httpx.HTTPError as e:
@@ -225,8 +295,12 @@ class CaptureService:
 
             # Step 4: Generate summary and tags via AI
             try:
-                summary_response = await self._generate_summary(content_for_ai, content_type.value)
-                tags, tags_response = await self._generate_tags(content_for_ai, title)
+                summary_response = await self._generate_summary(
+                    content_for_ai, content_type.value, model_config
+                )
+                tags, tags_response = await self._generate_tags(
+                    content_for_ai, title, model_config
+                )
             except AIRouterError as e:
                 # AI errors should trigger retry (could be temporary API issues)
                 logger.error(f"AI processing error: {e}")
@@ -237,6 +311,26 @@ class CaptureService:
 
             # Extract summary text for use in note
             summary = summary_response.content
+
+            # Convert timestamps to Media Extended format for videos
+            if content_type == ContentType.VIDEO:
+                summary = self._convert_timestamps_to_media_extended(summary, url)
+
+            # Build AI usage metrics
+            ai_metrics = AIUsageMetrics(
+                summary_backend=summary_response.backend,
+                summary_model=summary_response.model,
+                summary_input_tokens=summary_response.input_tokens,
+                summary_output_tokens=summary_response.output_tokens,
+                summary_cost_usd=summary_response.cost_usd,
+                summary_time_seconds=summary_response.time_seconds,
+                tags_backend=tags_response.backend,
+                tags_model=tags_response.model,
+                tags_input_tokens=tags_response.input_tokens,
+                tags_output_tokens=tags_response.output_tokens,
+                tags_cost_usd=tags_response.cost_usd,
+                tags_time_seconds=tags_response.time_seconds
+            )
 
             # Step 5: Find backlinks
             related_notes = self._backlinks.find_related(tags, min_shared=2)
@@ -268,11 +362,18 @@ class CaptureService:
                     backlinks_section
                 )
             elif content_type == ContentType.PRINTABLE:
-                full_content = self._format_printable_content(
-                    extracted,  # type: PrintableContent
-                    summary,
-                    backlinks_section
-                )
+                if isinstance(extracted, PlaywrightPrintableContent):
+                    full_content = self._format_playwright_printable_content(
+                        extracted,
+                        summary,
+                        backlinks_section
+                    )
+                else:
+                    full_content = self._format_printable_content(
+                        extracted,  # type: PrintableContent
+                        summary,
+                        backlinks_section
+                    )
             else:
                 full_content = self._format_note_content(
                     extracted,  # type: ArticleContent
@@ -305,28 +406,53 @@ class CaptureService:
                 ai=ai_metadata
             )
 
-            # Get target folder based on content type
-            target_folder = self._get_folder_for_type(content_type)
+            # Get target folder - use override if provided, otherwise based on content type
+            output_folder = target_folder if target_folder else self._get_folder_for_type(content_type)
 
             note = Note(
                 title=title,
                 content=full_content,
                 frontmatter=frontmatter,
-                file_path=f"{target_folder}/{title}.md"  # Will be sanitized by writer
+                file_path=f"{output_folder}/{title}.md"  # Will be sanitized by writer
             )
 
             # Step 8: Write note to vault
-            note_path = self._writer.write_note(note, subfolder=target_folder)
+            note_path = self._writer.write_note(note, subfolder=output_folder)
             relative_path = str(note_path.relative_to(Path(self._config.vault_path)))
 
-            logger.info(f"Successfully created note at: {relative_path}")
+            logger.info(
+                f"Successfully created note at: {relative_path}, "
+                f"AI cost: ${ai_metrics.total_cost_usd:.6f}"
+            )
+
+            # Track performance metrics
+            try:
+                perf_record = CapturePerformance(
+                    capture_id=str(uuid4()),
+                    timestamp=datetime.now().isoformat(),
+                    fixture_name=title,
+                    content_type=content_type.value,
+                    url=url,
+                    summary_model=ai_metadata.summary.model if ai_metadata.summary else "unknown",
+                    tags_model=ai_metadata.tags.model if ai_metadata.tags else "unknown",
+                    input_tokens=ai_metrics.summary_input_tokens + ai_metrics.tags_input_tokens,
+                    output_tokens=ai_metrics.summary_output_tokens + ai_metrics.tags_output_tokens,
+                    cost_usd=ai_metrics.total_cost_usd,
+                    time_seconds=ai_metrics.total_time_seconds,
+                    success=True
+                )
+                self._performance_db.add_capture(perf_record)
+                logger.debug(f"Tracked performance for {ai_metadata.summary.model if ai_metadata.summary else 'unknown'}")
+            except Exception as perf_err:
+                logger.warning(f"Failed to track performance: {perf_err}")
 
             return CaptureResult(
                 success=True,
                 note_path=relative_path,
                 title=title,
                 tags=tags,
-                content_type=content_type.value
+                content_type=content_type.value,
+                ai_metrics=ai_metrics
             )
 
         except Exception as e:
@@ -489,19 +615,78 @@ class CaptureService:
             )
             return walkthrough
 
-    async def _fetch_printable_content(self, url: str) -> PrintableContent:
+    async def _fetch_printable_content(self, url: str) -> PrintableContent | PlaywrightPrintableContent:
         """Fetch and extract 3D printable model content from URL.
 
+        Uses Playwright + Vision AI when available for better extraction from
+        JavaScript-heavy sites. Falls back to basic HTTP extraction if Playwright
+        is not installed.
+
         Args:
-            url: The 3D model URL to fetch (Thingiverse, Printables, Cults3D)
+            url: The 3D model URL to fetch (Thingiverse, Printables, Cults3D, MakerWorld)
 
         Returns:
-            PrintableContent with extracted data (metadata, print settings, files)
+            PrintableContent or PlaywrightPrintableContent with extracted data
 
         Raises:
             httpx.HTTPError: For HTTP errors
             ValueError: For unsupported platforms
         """
+        # Try Playwright + Vision AI first if available
+        # Need either Claude API key (for claude vision) or OpenRouter key (for other vision models)
+        vision_model = self._config.vision_model
+        can_use_vision = (
+            (vision_model == "claude" and self._config.claude_api_key) or
+            (vision_model != "claude" and self._config.openrouter_api_key)
+        )
+
+        if PLAYWRIGHT_AVAILABLE and can_use_vision:
+            try:
+                logger.info(f"Using Playwright + Vision AI ({vision_model}) for printable extraction")
+                vault_path = Path(self._config.vault_path)
+
+                async with PlaywrightPrintableExtractor(vault_path) as pw_extractor:
+                    # Capture screenshots
+                    pw_content = await pw_extractor.extract(url)
+
+                    # Analyze with Vision AI
+                    vision = VisionAnalyzer(
+                        claude_api_key=self._config.claude_api_key,
+                        openrouter_api_key=self._config.openrouter_api_key,
+                        vision_model=vision_model
+                    )
+                    try:
+                        analysis = await vision.analyze_printable_screenshot(
+                            pw_content.screenshots.main_image,
+                            additional_context=f"Platform: {pw_content.platform}"
+                        )
+
+                        # Enrich content with vision analysis
+                        pw_content.creator = analysis.get("creator", "Unknown")
+                        pw_content.description = analysis.get("summary", "")
+                        pw_content.file_list = analysis.get("files", [])
+                        pw_content.tags = analysis.get("tags", [])
+                        pw_content.print_settings = analysis.get("print_settings", "")
+                        pw_content.ai_summary = analysis.get("summary", "")
+
+                        # Use vision title if better than page title
+                        if analysis.get("title") and analysis["title"] != "Unknown":
+                            pw_content.title = analysis["title"]
+
+                        logger.info(
+                            f"Vision extracted: {pw_content.title} by {pw_content.creator} "
+                            f"(files: {len(pw_content.file_list)}, tags: {len(pw_content.tags)})"
+                        )
+                    finally:
+                        await vision.close()
+
+                    return pw_content
+
+            except Exception as e:
+                logger.warning(f"Playwright extraction failed, falling back to HTTP: {e}")
+                # Fall through to basic extraction
+
+        # Fallback to basic HTTP extraction
         async with PrintableExtractor() as extractor:
             printable = await extractor.extract(url)
             logger.info(
@@ -620,12 +805,18 @@ class CaptureService:
         # Auto-detect
         return detect_content_type(url, content)
 
-    async def _generate_summary(self, content: str, content_type: str) -> AIResponse:
+    async def _generate_summary(
+        self,
+        content: str,
+        content_type: str,
+        model_config: ModelConfig | None = None
+    ) -> AIResponse:
         """Generate AI summary of content.
 
         Args:
             content: The content to summarize
             content_type: Type of content (article, video, repo, etc.)
+            model_config: Optional model configuration override
 
         Returns:
             AIResponse with summary and metadata
@@ -646,8 +837,14 @@ class CaptureService:
             content_type
         )
 
-        response = await self._ai_router.route_request(
-            task_type="summarize_long",
+        # Use model config if provided, otherwise use default routing
+        effective_config = model_config or self._config.models
+        backend, model = effective_config.get_summary_model()
+        logger.info(f"Using {backend}/{model} for summary generation")
+
+        response = await self._ai_router.route_with_model(
+            backend=backend,
+            model=model,
             prompt=user_prompt,
             system_prompt=system_prompt,
             temperature=0.7
@@ -657,12 +854,18 @@ class CaptureService:
         response.content = response.content.strip()
         return response
 
-    async def _generate_tags(self, content: str, title: str) -> tuple[list[str], AIResponse]:
+    async def _generate_tags(
+        self,
+        content: str,
+        title: str,
+        model_config: ModelConfig | None = None
+    ) -> tuple[list[str], AIResponse]:
         """Generate AI tags for content.
 
         Args:
             content: The content to analyze
             title: Title of the content
+            model_config: Optional model configuration override
 
         Returns:
             Tuple of (tags list, AIResponse with metadata)
@@ -681,8 +884,14 @@ class CaptureService:
             title
         )
 
-        response = await self._ai_router.route_request(
-            task_type="tagging",
+        # Use model config if provided, otherwise use default routing
+        effective_config = model_config or self._config.models
+        backend, model = effective_config.get_tags_model()
+        logger.info(f"Using {backend}/{model} for tag generation")
+
+        response = await self._ai_router.route_with_model(
+            backend=backend,
+            model=model,
             prompt=user_prompt,
             system_prompt=system_prompt,
             temperature=0.5
@@ -823,15 +1032,10 @@ class CaptureService:
             sections.append("## Chapters")
             sections.append("")
             for chapter in video.chapters:
-                # Format timestamp
-                ch_mins, ch_secs = divmod(chapter.start_time, 60)
-                ch_hours, ch_mins = divmod(ch_mins, 60)
-                if ch_hours > 0:
-                    ts = f"{ch_hours}:{ch_mins:02d}:{ch_secs:02d}"
-                else:
-                    ts = f"{ch_mins}:{ch_secs:02d}"
-                # Link to timestamp
-                sections.append(f"- [{ts}]({video.source_url}&t={chapter.start_time}) {chapter.title}")
+                ts_link = self._format_media_extended_timestamp(
+                    video.source_url, chapter.start_time
+                )
+                sections.append(f"- {ts_link} {chapter.title}")
             sections.append("")
 
         # Transcript notice
@@ -1230,6 +1434,114 @@ class CaptureService:
 
         return "\n".join(sections)
 
+    def _format_playwright_printable_content(
+        self,
+        printable: PlaywrightPrintableContent,
+        summary: str,
+        backlinks_section: str
+    ) -> str:
+        """Format 3D printable model note with embedded screenshots.
+
+        This format is used when Playwright + Vision AI extracts the content,
+        including local screenshots saved to the vault.
+
+        Args:
+            printable: Extracted 3D model content from Playwright
+            summary: AI-generated summary
+            backlinks_section: Formatted backlinks section
+
+        Returns:
+            Complete formatted markdown content with embedded screenshots
+        """
+        sections = []
+
+        # Title
+        sections.append(f"# {printable.title}")
+        sections.append("")
+
+        # Screenshot preview (embedded from vault)
+        if printable.screenshots.main_image_path:
+            # Get relative path for Obsidian embedding
+            try:
+                vault_path = Path(self._config.vault_path)
+                rel_path = printable.screenshots.main_image_path.relative_to(vault_path)
+                sections.append("## Preview")
+                sections.append("")
+                sections.append(f"![[{rel_path}]]")
+                sections.append("")
+            except ValueError:
+                # Fallback if can't get relative path
+                pass
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        sections.append(summary)
+        sections.append("")
+
+        # Model info table
+        sections.append("## Model Info")
+        sections.append("")
+        sections.append("| Field | Value |")
+        sections.append("|-------|-------|")
+        sections.append(f"| Platform | **{printable.platform}** |")
+        sections.append(f"| Creator | {printable.creator} |")
+        sections.append(f"| Captured | {printable.captured_at.strftime('%Y-%m-%d %H:%M')} |")
+        sections.append("")
+
+        # Link to original
+        sections.append(f"[View on {printable.platform}]({printable.source_url})")
+        sections.append("")
+
+        # Files detected by vision AI
+        if printable.file_list:
+            sections.append("## Files")
+            sections.append("")
+            for file_name in printable.file_list:
+                sections.append(f"- {file_name}")
+            sections.append("")
+
+        # Print settings from vision AI
+        if printable.print_settings:
+            sections.append("## Print Settings")
+            sections.append("")
+            sections.append(printable.print_settings)
+            sections.append("")
+
+        # Tags from vision AI
+        if printable.tags:
+            sections.append("## Categories")
+            sections.append("")
+            tags_formatted = " ".join([f"`{tag}`" for tag in printable.tags])
+            sections.append(tags_formatted)
+            sections.append("")
+
+        # Description/AI Summary
+        if printable.description:
+            sections.append("## Description")
+            sections.append("")
+            sections.append(printable.description)
+            sections.append("")
+
+        # Files tab screenshot if available
+        if printable.screenshots.files_image_path:
+            try:
+                vault_path = Path(self._config.vault_path)
+                rel_path = printable.screenshots.files_image_path.relative_to(vault_path)
+                sections.append("## Files Screenshot")
+                sections.append("")
+                sections.append(f"![[{rel_path}]]")
+                sections.append("")
+            except ValueError:
+                pass
+
+        # Backlinks section
+        if backlinks_section:
+            sections.append("")
+            sections.append(backlinks_section)
+
+        return "\n".join(sections)
+
     def _get_folder_for_type(self, content_type: ContentType) -> str:
         """Get the target folder for a content type.
 
@@ -1251,6 +1563,106 @@ class CaptureService:
         }
 
         return mapping.get(content_type, folders.article)
+
+    def _convert_timestamps_to_media_extended(self, text: str, video_url: str) -> str:
+        """Convert plain timestamps like [MM:SS] to Media Extended clickable links.
+
+        Converts timestamps in AI-generated summaries from plain format like [00:40]
+        to Media Extended format: [00:40](URL&t=40#t=00:40.00)
+
+        Args:
+            text: Text containing timestamps like [00:00], [5:15], or [1:23:45]
+            video_url: The YouTube video URL
+
+        Returns:
+            Text with timestamps converted to Media Extended format
+
+        Example:
+            Input: "- [00:40] Introduction to topic"
+            Output: "- [00:40](https://youtube.com/watch?v=ID&t=40#t=00:40.00) Introduction"
+        """
+        import re
+
+        def replace_timestamp(match):
+            timestamp = match.group(1)  # e.g., "05:15" or "1:23:45" or "0:00"
+            parts = timestamp.split(':')
+
+            # Calculate total seconds
+            try:
+                if len(parts) == 2:  # MM:SS or M:SS
+                    total_seconds = int(parts[0]) * 60 + int(parts[1])
+                    # Normalize to MM:SS format
+                    minutes = int(parts[0])
+                    seconds = int(parts[1])
+                    normalized_ts = f"{minutes:02d}:{seconds:02d}"
+                elif len(parts) == 3:  # H:MM:SS or HH:MM:SS
+                    total_seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                    # Keep original format for display
+                    hours = int(parts[0])
+                    minutes = int(parts[1])
+                    seconds = int(parts[2])
+                    normalized_ts = f"{hours}:{minutes:02d}:{seconds:02d}"
+                else:
+                    return match.group(0)  # Return unchanged if format unknown
+            except ValueError:
+                return match.group(0)  # Return unchanged if parsing fails
+
+            # Build Media Extended link using helper method
+            # Format: [MM:SS](URL&t=SECONDS#t=MM:SS.00)
+            link = self._format_media_extended_timestamp(video_url, total_seconds)
+
+            return link
+
+        # Match timestamps in brackets: [0:00], [00:00], [5:15], [1:23:45]
+        # Pattern matches: [H:MM:SS], [HH:MM:SS], [M:SS], [MM:SS]
+        pattern = r'\[(\d{1,2}:\d{2}(?::\d{2})?)\]'
+        converted_text = re.sub(pattern, replace_timestamp, text)
+
+        return converted_text
+
+    def _format_media_extended_timestamp(
+        self,
+        video_url: str,
+        seconds: int | float
+    ) -> str:
+        """Format a timestamp link compatible with Obsidian Media Extended plugin.
+
+        Creates a link in the format:
+        [MM:SS](https://www.youtube.com/watch?v=ID&t=SECONDS#t=MM:SS.MS)
+
+        The #t= fragment is used by Media Extended for precise playback positioning.
+
+        Args:
+            video_url: The YouTube video URL
+            seconds: Timestamp in seconds (can be float for sub-second precision)
+
+        Returns:
+            Formatted markdown timestamp link
+        """
+        # Handle float seconds (some sources provide fractional seconds)
+        total_seconds = int(seconds)
+        milliseconds = int((seconds - total_seconds) * 100) if isinstance(seconds, float) else 0
+
+        # Calculate hours, minutes, seconds
+        hours, remainder = divmod(total_seconds, 3600)
+        mins, secs = divmod(remainder, 60)
+
+        # Format display timestamp (what user sees)
+        if hours > 0:
+            display_ts = f"{hours}:{mins:02d}:{secs:02d}"
+            fragment_ts = f"{hours:02d}:{mins:02d}:{secs:02d}.{milliseconds:02d}"
+        else:
+            display_ts = f"{mins:02d}:{secs:02d}"
+            fragment_ts = f"{mins:02d}:{secs:02d}.{milliseconds:02d}"
+
+        # Build the Media Extended compatible URL
+        # Format: video_url&t=SECONDS#t=MM:SS.MS
+        if "?" in video_url:
+            url_with_time = f"{video_url}&t={total_seconds}#t={fragment_ts}"
+        else:
+            url_with_time = f"{video_url}?t={total_seconds}#t={fragment_ts}"
+
+        return f"[{display_ts}]({url_with_time})"
 
     async def close(self) -> None:
         """Close resources and cleanup.

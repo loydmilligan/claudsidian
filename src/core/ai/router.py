@@ -12,12 +12,13 @@ Features:
 import asyncio
 import logging
 import random
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from src.models.config import Configuration
-from src.core.ai.openrouter import OpenRouterClient, OpenRouterError
-from src.core.ai.claude import ClaudeClient, ClaudeAPIError
+from src.models.config import Configuration, ModelConfig
+from src.core.ai.openrouter import OpenRouterClient, OpenRouterError, OpenRouterResponse
+from src.core.ai.claude import ClaudeClient, ClaudeAPIError, ClaudeResponse
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,47 @@ class AIResponse:
     model: str  # e.g., "claude-sonnet-4-20250514" or "anthropic/claude-3-haiku"
     temperature: float
     max_tokens: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0  # Estimated cost in USD
+    time_seconds: float = 0.0  # Response time in seconds
+
+
+# Model pricing per million tokens (input, output) in USD
+# Updated December 2024 - check for latest pricing
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # Anthropic direct API
+    "claude-sonnet-4-20250514": (3.00, 15.00),
+    "claude-3-haiku-20240307": (0.25, 1.25),
+    # OpenRouter pricing (usually slightly higher due to margin)
+    "anthropic/claude-3-haiku": (0.25, 1.25),
+    "anthropic/claude-3.5-sonnet": (3.00, 15.00),
+    "openai/gpt-4o-mini": (0.15, 0.60),
+    "google/gemini-flash-1.5": (0.075, 0.30),
+    # Free models (currently free tier on OpenRouter)
+    "x-ai/grok-4.1-fast:free": (0.0, 0.0),
+}
+
+
+def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimate cost in USD for a model call.
+
+    Args:
+        model: Model ID
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+
+    Returns:
+        Estimated cost in USD
+    """
+    pricing = MODEL_PRICING.get(model)
+    if not pricing:
+        # Default to Haiku pricing for unknown models
+        pricing = (0.25, 1.25)
+
+    input_cost = (input_tokens / 1_000_000) * pricing[0]
+    output_cost = (output_tokens / 1_000_000) * pricing[1]
+    return input_cost + output_cost
 
 
 # Rate limit retry configuration (T083)
@@ -206,7 +248,7 @@ class AIRouter:
         prompt: str,
         system_prompt: Optional[str],
         **kwargs: Any
-    ) -> str:
+    ) -> ClaudeResponse | OpenRouterResponse:
         """Make an API request with exponential backoff retry (T083).
 
         Args:
@@ -217,7 +259,7 @@ class AIRouter:
             **kwargs: Additional parameters
 
         Returns:
-            The AI response
+            ClaudeResponse or OpenRouterResponse with content and token usage
 
         Raises:
             OpenRouterError, ClaudeAPIError: If all retries fail
@@ -337,16 +379,22 @@ class AIRouter:
                 **kwargs
             )
             model = self._get_model_name(backend, client)
+            cost = estimate_cost(model, response.input_tokens, response.output_tokens)
             logger.info(
                 f"Successfully routed '{task_type}' to {backend} ({model}), "
-                f"response length: {len(response)}"
+                f"response length: {len(response.content)}, "
+                f"tokens: {response.input_tokens}in/{response.output_tokens}out, "
+                f"cost: ${cost:.6f}"
             )
             return AIResponse(
-                content=response,
+                content=response.content,
                 backend=backend,
                 model=model,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cost_usd=cost
             )
 
         except (OpenRouterError, ClaudeAPIError) as e:
@@ -367,16 +415,21 @@ class AIRouter:
                         **kwargs
                     )
                     model = self._get_model_name(fallback_backend, fallback_client)
+                    cost = estimate_cost(model, response.input_tokens, response.output_tokens)
                     logger.info(
                         f"Fallback to {fallback_backend} ({model}) succeeded for '{task_type}', "
-                        f"response length: {len(response)}"
+                        f"response length: {len(response.content)}, "
+                        f"tokens: {response.input_tokens}in/{response.output_tokens}out"
                     )
                     return AIResponse(
-                        content=response,
+                        content=response.content,
                         backend=fallback_backend,
                         model=model,
                         temperature=temperature,
-                        max_tokens=max_tokens
+                        max_tokens=max_tokens,
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                        cost_usd=cost
                     )
 
                 except (OpenRouterError, ClaudeAPIError) as fallback_error:
@@ -396,6 +449,142 @@ class AIRouter:
 
         except Exception as e:
             error_msg = f"Unexpected error routing '{task_type}' to {backend}: {str(e)}"
+            logger.error(error_msg)
+            raise AIRouterError(error_msg) from e
+
+    async def route_with_model(
+        self,
+        backend: str,
+        model: str,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any
+    ) -> AIResponse:
+        """Route an AI request to a specific backend and model.
+
+        This method allows explicit control over which backend and model to use,
+        bypassing the task-type based routing logic.
+
+        Args:
+            backend: Backend to use ("claude" or "openrouter")
+            model: Model ID to use (e.g., "claude-sonnet-4-20250514" or "anthropic/claude-3-haiku")
+            prompt: The prompt to send to the AI
+            system_prompt: Optional system prompt for context/behavior
+            **kwargs: Additional parameters to pass to the backend
+                     (e.g., temperature, max_tokens)
+
+        Returns:
+            AIResponse with content and metadata about the call
+
+        Raises:
+            AIRouterError: If the backend fails
+            ValueError: If prompt is empty or backend is invalid
+        """
+        if not prompt:
+            raise ValueError("Prompt cannot be empty")
+
+        if backend not in ("claude", "openrouter"):
+            raise ValueError(f"Invalid backend: {backend}. Must be 'claude' or 'openrouter'")
+
+        # Extract parameters for metadata (with defaults)
+        temperature = kwargs.get("temperature", 0.7)
+        max_tokens = kwargs.get("max_tokens", 1024)
+
+        # Add model to kwargs so client uses it
+        kwargs["model"] = model
+
+        # Get the appropriate client
+        if backend == "claude":
+            client = self.claude
+        else:
+            client = self.openrouter
+
+        logger.debug(f"Direct routing to {backend} with model {model}")
+
+        # Make the API call with retry logic and timing
+        try:
+            start_time = time.perf_counter()
+            response = await self._make_request_with_retry(
+                client=client,
+                backend=backend,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                **kwargs
+            )
+            elapsed_time = time.perf_counter() - start_time
+            cost = estimate_cost(model, response.input_tokens, response.output_tokens)
+            logger.info(
+                f"Successfully routed to {backend} ({model}), "
+                f"response length: {len(response.content)}, "
+                f"tokens: {response.input_tokens}in/{response.output_tokens}out, "
+                f"cost: ${cost:.6f}, time: {elapsed_time:.2f}s"
+            )
+            return AIResponse(
+                content=response.content,
+                backend=backend,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cost_usd=cost,
+                time_seconds=elapsed_time
+            )
+
+        except (OpenRouterError, ClaudeAPIError) as e:
+            primary_error = e
+            logger.warning(f"Backend {backend} failed: {e}")
+
+            # Try fallback backend if available
+            if self._has_fallback(backend):
+                fallback_backend, fallback_client = self._get_fallback_client(backend)
+                logger.info(f"Attempting fallback to {fallback_backend}...")
+
+                # Remove explicit model for fallback (use default)
+                fallback_kwargs = {k: v for k, v in kwargs.items() if k != "model"}
+
+                try:
+                    response = await self._make_request_with_retry(
+                        client=fallback_client,
+                        backend=fallback_backend,
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        **fallback_kwargs
+                    )
+                    fallback_model = self._get_model_name(fallback_backend, fallback_client)
+                    cost = estimate_cost(fallback_model, response.input_tokens, response.output_tokens)
+                    logger.info(
+                        f"Fallback to {fallback_backend} ({fallback_model}) succeeded, "
+                        f"response length: {len(response.content)}, "
+                        f"tokens: {response.input_tokens}in/{response.output_tokens}out"
+                    )
+                    return AIResponse(
+                        content=response.content,
+                        backend=fallback_backend,
+                        model=fallback_model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                        cost_usd=cost
+                    )
+
+                except (OpenRouterError, ClaudeAPIError) as fallback_error:
+                    error_msg = (
+                        f"Both backends failed. "
+                        f"Primary ({backend}): {primary_error}. "
+                        f"Fallback ({fallback_backend}): {fallback_error}"
+                    )
+                    logger.error(error_msg)
+                    raise AIRouterError(error_msg) from fallback_error
+
+            # No fallback available
+            error_msg = f"Failed to route to {backend}: {str(e)}"
+            logger.error(error_msg)
+            raise AIRouterError(error_msg) from e
+
+        except Exception as e:
+            error_msg = f"Unexpected error routing to {backend}: {str(e)}"
             logger.error(error_msg)
             raise AIRouterError(error_msg) from e
 

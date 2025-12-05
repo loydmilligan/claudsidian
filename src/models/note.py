@@ -36,6 +36,8 @@ class Frontmatter(BaseModel):
         tags: Auto-generated tags for organizing and finding notes
         summary: Optional one-line summary for preview purposes
         ai: Metadata about AI models used during capture
+        user_rating: User-provided quality rating (1-5 stars)
+        rating_processed: Whether the rating has been processed into analytics DB
     """
 
     source: HttpUrl = Field(..., description="Original URL where content was captured")
@@ -47,6 +49,12 @@ class Frontmatter(BaseModel):
     )
     ai: Optional[AIMetadata] = Field(
         None, description="AI models used during capture"
+    )
+    user_rating: Optional[int] = Field(
+        None, description="User quality rating 1-5 stars", ge=1, le=5
+    )
+    rating_processed: bool = Field(
+        False, description="Whether rating has been processed into analytics"
     )
 
     model_config = {
@@ -183,6 +191,10 @@ class Note(BaseModel):
             if ai_dict:
                 frontmatter_dict["ai"] = ai_dict
 
+        # Always include user rating fields (even if None) so users can see and edit them
+        frontmatter_dict["user_rating"] = self.frontmatter.user_rating
+        frontmatter_dict["rating_processed"] = self.frontmatter.rating_processed
+
         # Serialize frontmatter to YAML
         yaml_content = yaml.dump(
             frontmatter_dict,
@@ -249,6 +261,8 @@ class Note(BaseModel):
             type=ContentType(frontmatter_dict["type"]),
             tags=frontmatter_dict.get("tags", []),
             summary=frontmatter_dict.get("summary"),
+            user_rating=frontmatter_dict.get("user_rating"),
+            rating_processed=frontmatter_dict.get("rating_processed", False),
         )
 
         return cls(

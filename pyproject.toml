@@ -46,6 +46,15 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
 ]
+# Vision/Playwright support for 3D printable sites (Thingiverse, Printables, etc.)
+# After install, run: playwright install chromium
+vision = [
+    "playwright>=1.40.0",
+]
+# All optional dependencies
+all = [
+    "playwright>=1.40.0",
+]
 
 [project.scripts]
 claudsidian = "src.cli.main:cli"

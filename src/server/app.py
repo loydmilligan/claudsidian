@@ -73,15 +73,12 @@ def create_app() -> FastAPI:
     )
 
     # Configure CORS middleware
-    # Allow requests from localhost and 127.0.0.1 on any port
+    # Allow requests from localhost, LAN, and Android apps
+    # Android apps making direct HTTP requests don't send Origin headers,
+    # so CORS isn't an issue for them. This config is mainly for browser extensions.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost",
-            "http://localhost:*",
-            "http://127.0.0.1",
-            "http://127.0.0.1:*",
-        ],
+        allow_origins=["*"],  # Allow all origins for LAN/Android access
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
