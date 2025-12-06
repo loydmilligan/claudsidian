@@ -1,0 +1,159 @@
+openapi: 3.0.3
+info:
+  title: OpenRouter API Contract
+  description: |
+    Subset of OpenRouter API used by the Obsidian Learning Plugin.
+    The plugin uses OpenRouter for AI-powered learning question generation,
+    inbox triage suggestions, and content analysis.
+  version: 1.0.0
+
+servers:
+  - url: https://openrouter.ai/api/v1
+    description: OpenRouter API
+
+security:
+  - bearerAuth: []
+
+paths:
+  /chat/completions:
+    post:
+      summary: Generate AI completion
+      description: |
+        Used for:
+        - Learning question generation
+        - Inbox triage suggestions
+        - Related topic suggestions
+      operationId: createChatCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              learningQuestions:
+                summary: Generate learning questions
+                value:
+                  model: x-ai/grok-4.1-fast
+                  messages:
+                    - role: system
+                      content: "You are a learning assistant that generates comprehension questions."
+                    - role: user
+                      content: "Generate 3-5 learning questions for this content: ..."
+                  temperature: 0.7
+                  max_tokens: 1000
+              inboxTriage:
+                summary: Inbox triage suggestion
+                value:
+                  model: x-ai/grok-4.1-fast
+                  messages:
+                    - role: user
+                      content: "Analyze this captured content and suggest: KEEP, ARCHIVE, DEEP_READ, or MERGE..."
+                  temperature: 0.3
+                  max_tokens: 200
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid API key
+        '429':
+          description: Rate limit exceeded
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: OpenRouter API key (sk-or-...)
+
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          description: Model identifier
+          enum:
+            - x-ai/grok-4.1-fast
+            - minimax/minimax-m2
+            - deepseek/deepseek-chat-v3.1
+            - z-ai/glm-4.5-air:free
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 0.7
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          default: 1000
+
+    Message:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              message:
+                $ref: '#/components/schemas/Message'
+              finish_reason:
+                type: string
+                enum: [stop, length]
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            code:
+              type: string

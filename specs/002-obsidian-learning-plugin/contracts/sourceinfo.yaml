@@ -1,0 +1,242 @@
+openapi: 3.0.3
+info:
+  title: SourceInfo API Contract
+  description: |
+    Local SourceInfo API for source credibility and bias data.
+    Used by the Obsidian Learning Plugin to display source credibility
+    indicators and suggest counternarrative sources for balanced perspectives.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local SourceInfo server (default)
+
+paths:
+  /api/sources/{domain}:
+    get:
+      summary: Get source by domain
+      description: Retrieve credibility and bias data for a news source
+      operationId: getSource
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          schema:
+            type: string
+          example: nytimes.com
+      responses:
+        '200':
+          description: Source found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceInfo'
+              example:
+                domain: nytimes.com
+                name: New York Times
+                political_lean: -1
+                political_lean_label: Lean Left
+                newsguard_score: 100
+                newsguard_rating: High Credibility
+                source_type: news_media
+        '404':
+          description: Source not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/sources/{domain}/counternarratives:
+    get:
+      summary: Get counternarrative sources
+      description: |
+        Get sources with opposing political perspectives.
+        Returns credible sources from the opposite side of the bias spectrum.
+      operationId: getCounternarratives
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: min_credibility
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+            default: 60
+          description: Minimum NewsGuard score for counternarratives
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+          description: Maximum number of sources to return
+      responses:
+        '200':
+          description: Counternarratives found
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CounternarrativeSource'
+              example:
+                - domain: wsj.com
+                  name: Wall Street Journal
+                  political_lean: 1
+                  weighted_score: 95
+                - domain: foxnews.com
+                  name: Fox News
+                  political_lean: 2
+                  weighted_score: 72
+        '404':
+          description: Source not found
+
+  /api/analyze:
+    post:
+      summary: Analyze article URL
+      description: |
+        Analyze a URL to extract source information and optionally
+        get counternarrative sources in one call.
+      operationId: analyzeUrl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+            example:
+              url: https://www.nytimes.com/2024/01/article-title
+              include_counternarratives: true
+              min_counternarrative_credibility: 60
+      responses:
+        '200':
+          description: Analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+        '400':
+          description: Invalid URL
+
+  /health:
+    get:
+      summary: Health check
+      description: Check if the SourceInfo API is running
+      operationId: healthCheck
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  schemas:
+    SourceInfo:
+      type: object
+      required:
+        - domain
+        - name
+      properties:
+        domain:
+          type: string
+          description: Source domain (e.g., nytimes.com)
+        name:
+          type: string
+          description: Full source name
+        political_lean:
+          type: integer
+          minimum: -2
+          maximum: 2
+          description: |
+            Political bias score:
+            -2 = Left, -1 = Lean Left, 0 = Center, 1 = Lean Right, 2 = Right
+        political_lean_label:
+          type: string
+          enum: [Left, Lean Left, Center, Lean Right, Right]
+        newsguard_score:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: NewsGuard credibility score (0-100)
+        newsguard_rating:
+          type: string
+          description: Human-readable credibility rating
+          enum: [High Credibility, Medium Credibility, Low Credibility]
+        source_type:
+          type: string
+          description: Type of source
+          enum:
+            - news_media
+            - fact_check
+            - think_tank
+            - wire_service
+            - trade_publication
+        description:
+          type: string
+          description: Source description
+
+    CounternarrativeSource:
+      type: object
+      properties:
+        domain:
+          type: string
+        name:
+          type: string
+        political_lean:
+          type: integer
+        weighted_score:
+          type: number
+          description: Combined credibility and relevance score
+
+    AnalyzeRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+        include_counternarratives:
+          type: boolean
+          default: true
+        min_counternarrative_credibility:
+          type: integer
+          default: 60
+        counternarrative_limit:
+          type: integer
+          default: 5
+
+    AnalyzeResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        domain:
+          type: string
+        source_found:
+          type: boolean
+        source:
+          $ref: '#/components/schemas/SourceInfo'
+        counternarratives:
+          type: array
+          items:
+            $ref: '#/components/schemas/CounternarrativeSource'
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
