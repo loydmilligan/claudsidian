@@ -6,6 +6,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from src.core.config import config_exists, load_config
+from src.models.config import AVAILABLE_MODELS
+from src.models.model_performance import ModelPerformanceDB
 
 router = APIRouter()
 
@@ -100,4 +102,66 @@ async def get_status():
             claude=has_claude,
             openrouter=has_openrouter,
         ),
+    )
+
+
+class ModelStats(BaseModel):
+    """Statistics for a single model."""
+    id: str
+    name: str
+    captures: int = 0
+    avg_cost: float = 0.0
+    avg_rating: float | None = None
+    rated_count: int = 0
+
+
+class ModelsResponseBody(BaseModel):
+    """Available models and their performance statistics."""
+    models: list[ModelStats]
+    default_model: str
+
+
+@router.get("/models", response_model=ModelsResponseBody)
+async def get_models():
+    """Get available models with recent performance statistics.
+
+    Returns list of available models with their capture counts,
+    average costs, and ratings (if any).
+
+    Returns:
+        ModelsResponseBody: Available models and stats
+    """
+    # Build model list from AVAILABLE_MODELS
+    models = []
+    for preset, model_id in AVAILABLE_MODELS.items():
+        models.append(ModelStats(
+            id=preset,
+            name=model_id.split("/")[-1] if "/" in model_id else model_id
+        ))
+
+    # Try to load performance data
+    if config_exists():
+        config = load_config()
+        if config and config.vault_path:
+            perf_db_path = Path(config.vault_path) / ".claudsidian" / "model_performance.json"
+            if perf_db_path.exists():
+                try:
+                    db = ModelPerformanceDB(perf_db_path)
+                    # Get stats for each model
+                    for model in models:
+                        captures = [c for c in db.captures if model.id in c.summary_model]
+                        if captures:
+                            model.captures = len(captures)
+                            model.avg_cost = sum(c.cost_usd for c in captures) / len(captures)
+                            # Get ratings if available
+                            rated = [c for c in captures if c.quality and c.quality.get("average")]
+                            if rated:
+                                model.rated_count = len(rated)
+                                model.avg_rating = sum(c.quality["average"] for c in rated) / len(rated)
+                except Exception:
+                    pass  # Silently ignore DB errors
+
+    return ModelsResponseBody(
+        models=models,
+        default_model="openrouter-grok-fast"
     )

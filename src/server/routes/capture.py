@@ -30,11 +30,19 @@ class CaptureRequestBody(BaseModel):
         url: The URL to capture (must be valid HTTP/HTTPS)
         source: Source of the capture request (browser, cli, inbox, android)
         force_type: Optional content type override (article, video, repo, news, walkthrough, printable)
+        skip_ai: If True, skip AI processing (quick inbox capture)
+        model: Optional model ID to use (e.g., 'openrouter-haiku', 'openrouter-grok-fast')
+        temperature: Optional temperature override (0.0-1.0)
+        max_tokens: Optional max_tokens override
     """
 
     url: HttpUrl
     source: str = "browser"
     force_type: str | None = None
+    skip_ai: bool = False
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
 
 
 class CaptureResponseBody(BaseModel):
@@ -227,12 +235,16 @@ async def capture_url(request: CaptureRequestBody) -> CaptureResponseBody:
         }
         force_type_enum = force_type_map.get(request.force_type)
 
-    # Create capture request
+    # Create capture request with new parameters
     capture_request = CaptureRequest(
         url=str(request.url),
         source=source_map[request.source],
         timestamp=datetime.now(),
         force_type=force_type_enum,
+        skip_ai=request.skip_ai,
+        model_override=request.model,
+        temperature_override=request.temperature,
+        max_tokens_override=request.max_tokens,
     )
 
     # Execute capture

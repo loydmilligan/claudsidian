@@ -182,13 +182,17 @@ class CaptureService:
         2. Fetch URL content
         3. Detect content type
         4. Extract content using appropriate extractor
-        5. Generate summary and tags via AI
+        5. Generate summary and tags via AI (unless skip_ai=True)
         6. Find backlinks
         7. Write note to vault
         8. Return result
 
         Args:
             request: CaptureRequest containing URL and metadata
+                    - skip_ai: If True, skip AI processing (quick inbox mode)
+                    - model_override: Optional model ID to use instead of default
+                    - temperature_override: Optional temperature (0.0-1.0)
+                    - max_tokens_override: Optional max tokens limit
             model_config: Optional model configuration override.
                          If not provided, uses config.models from Configuration.
                          Use ModelConfig(cheap_mode=True) for cheap captures.
@@ -216,8 +220,19 @@ class CaptureService:
             >>> # Capture with cheap mode (all haiku)
             >>> cheap_config = ModelConfig(cheap_mode=True)
             >>> result = await service.capture(request, model_config=cheap_config)
+            >>>
+            >>> # Quick inbox capture (no AI processing)
+            >>> request = CaptureRequest(url="...", skip_ai=True, ...)
+            >>> result = await service.capture(request)
         """
         url = str(request.url)
+
+        # Handle model override from request
+        if request.model_override and model_config is None:
+            model_config = ModelConfig(
+                summary_model=request.model_override,
+                tags_model=request.model_override
+            )
         logger.info(f"Starting capture for URL: {url}")
 
         try:
@@ -293,44 +308,52 @@ class CaptureService:
                     error=f"Failed to extract content: {str(e)}"
                 )
 
-            # Step 4: Generate summary and tags via AI
-            try:
-                summary_response = await self._generate_summary(
-                    content_for_ai, content_type.value, model_config
-                )
-                tags, tags_response = await self._generate_tags(
-                    content_for_ai, title, model_config
-                )
-            except AIRouterError as e:
-                # AI errors should trigger retry (could be temporary API issues)
-                logger.error(f"AI processing error: {e}")
-                return await self._queue_for_retry(
-                    request,
-                    f"AI processing error: {str(e)}"
-                )
+            # Step 4: Generate summary and tags via AI (unless skip_ai=True)
+            if request.skip_ai:
+                # Skip AI processing - use placeholder summary and empty tags
+                logger.info(f"Skipping AI processing (skip_ai=True) for: {url}")
+                summary = f"*Quick capture - AI summary pending*\n\nSource: {url}"
+                tags = []
+                ai_metadata = None
+                ai_metrics = AIUsageMetrics()  # Empty metrics for no-AI capture
+            else:
+                try:
+                    summary_response = await self._generate_summary(
+                        content_for_ai, content_type.value, model_config
+                    )
+                    tags, tags_response = await self._generate_tags(
+                        content_for_ai, title, model_config
+                    )
+                except AIRouterError as e:
+                    # AI errors should trigger retry (could be temporary API issues)
+                    logger.error(f"AI processing error: {e}")
+                    return await self._queue_for_retry(
+                        request,
+                        f"AI processing error: {str(e)}"
+                    )
 
-            # Extract summary text for use in note
-            summary = summary_response.content
+                # Extract summary text for use in note
+                summary = summary_response.content
 
-            # Convert timestamps to Media Extended format for videos
-            if content_type == ContentType.VIDEO:
-                summary = self._convert_timestamps_to_media_extended(summary, url)
+                # Convert timestamps to Media Extended format for videos
+                if content_type == ContentType.VIDEO:
+                    summary = self._convert_timestamps_to_media_extended(summary, url)
 
-            # Build AI usage metrics
-            ai_metrics = AIUsageMetrics(
-                summary_backend=summary_response.backend,
-                summary_model=summary_response.model,
-                summary_input_tokens=summary_response.input_tokens,
-                summary_output_tokens=summary_response.output_tokens,
-                summary_cost_usd=summary_response.cost_usd,
-                summary_time_seconds=summary_response.time_seconds,
-                tags_backend=tags_response.backend,
-                tags_model=tags_response.model,
-                tags_input_tokens=tags_response.input_tokens,
-                tags_output_tokens=tags_response.output_tokens,
-                tags_cost_usd=tags_response.cost_usd,
-                tags_time_seconds=tags_response.time_seconds
-            )
+                # Build AI usage metrics
+                ai_metrics = AIUsageMetrics(
+                    summary_backend=summary_response.backend,
+                    summary_model=summary_response.model,
+                    summary_input_tokens=summary_response.input_tokens,
+                    summary_output_tokens=summary_response.output_tokens,
+                    summary_cost_usd=summary_response.cost_usd,
+                    summary_time_seconds=summary_response.time_seconds,
+                    tags_backend=tags_response.backend,
+                    tags_model=tags_response.model,
+                    tags_input_tokens=tags_response.input_tokens,
+                    tags_output_tokens=tags_response.output_tokens,
+                    tags_cost_usd=tags_response.cost_usd,
+                    tags_time_seconds=tags_response.time_seconds
+                )
 
             # Step 5: Find backlinks
             related_notes = self._backlinks.find_related(tags, min_shared=2)
@@ -382,20 +405,23 @@ class CaptureService:
                 )
 
             # Step 7: Create note object with AI metadata
-            ai_metadata = AIMetadata(
-                summary=AICallInfo(
-                    backend=summary_response.backend,
-                    model=summary_response.model,
-                    temperature=summary_response.temperature,
-                    max_tokens=summary_response.max_tokens
-                ),
-                tags=AICallInfo(
-                    backend=tags_response.backend,
-                    model=tags_response.model,
-                    temperature=tags_response.temperature,
-                    max_tokens=tags_response.max_tokens
+            if not request.skip_ai:
+                ai_metadata = AIMetadata(
+                    summary=AICallInfo(
+                        backend=summary_response.backend,
+                        model=summary_response.model,
+                        temperature=summary_response.temperature,
+                        max_tokens=summary_response.max_tokens
+                    ),
+                    tags=AICallInfo(
+                        backend=tags_response.backend,
+                        model=tags_response.model,
+                        temperature=tags_response.temperature,
+                        max_tokens=tags_response.max_tokens
+                    )
                 )
-            )
+            else:
+                ai_metadata = None
 
             frontmatter = Frontmatter(
                 source=request.url,
