@@ -14,10 +14,10 @@ dependencies:
     sdk: flutter
 
   # Share handling for receiving shared URLs
-  receive_sharing_intent: ^1.6.7
+  receive_sharing_intent: ^1.8.0
 
   # mDNS/Service discovery
-  nsd: ^2.1.0
+  nsd: ^4.0.0
 
   # HTTP client for API calls
   http: ^1.2.0

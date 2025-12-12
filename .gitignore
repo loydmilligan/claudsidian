@@ -68,3 +68,11 @@ Thumbs.db
 # Temp files
 *.tmp
 *.temp
+
+# Archive (screenshots, temp docs)
+.archive/
+
+# Flutter/Android build artifacts
+android/build/
+android/.dart_tool/
+android/.packages

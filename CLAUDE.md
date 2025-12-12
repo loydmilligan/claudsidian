@@ -1,6 +1,42 @@
 # Claudsidian Development Guidelines
 
-AI-powered knowledge capture for Obsidian. Last updated: 2025-12-05
+## Important part of workflow
+
+Remember, whenever there is a change in the plugin that will need testing, remember to build the plugin AND copy the latest manifest and main files to the user's actual vault.
+
+```bash
+# Build the plugin
+npm run build
+
+# Copy built files to vault plugin folder
+cp /home/mmariani/Projects/obsidian-learning-plugin/main.js /home/mmariani/Projects/obsidian-learning-plugin/manifest.json /mnt/c/Users/mmariani/Documents/claudsidian/cld_vlt/.obsidian/plugins/obsidian-learning-plugin/
+
+Rule: After any code changes that need testing, always run both commands above before asking the user to test. Do not wait for the user to ask - proactively build and deploy after completing implementation work.
+
+
+## Important When Working on Obsidian Plugins That Integrate with Claudsidian
+
+At times while working on Claudsidian, you may be given access to another repository that integrates with or extends Claudsidian functionality. When this is the case:
+
+  1. **Always check for a CLAUDE.md file** in the integration repo and follow those rules in addition to this file
+  2. **Understand the data flow** between Claudsidian and the integration (e.g., shared folders, frontmatter conventions, database files)
+  3. **Maintain compatibility** with Claudsidian's data structures (frontmatter schema, `.claudsidian/` folder contents, etc.)
+
+### Current Integrations
+
+  | Integration | Description | Working Directory | CLAUDE.md Location |
+  |-------------|-------------|-------------------|-------------------|
+  | **obsidian-learning-plugin** | Obsidian plugin providing AI-powered learning workflows for Claudsidian captures. Features include: review sessions,
+  learning questions generation, related topics with SearXNG search, bias analysis, and cost tracking. Reads from `.claudsidian/model_performance.json`
+  for unified analytics. | `/home/mmariani/Projects/obsidian-learning-plugin` | `/home/mmariani/Projects/obsidian-learning-plugin/CLAUDE.md` |
+
+### Shared Data Structures
+
+  - **`.claudsidian/model_performance.json`** - AI usage and cost tracking database (shared between CLI and plugin)
+  - **Frontmatter fields** - `source`, `captured`, `type`, `tags`, `summary`, `ai` metadata
+  - **Learning notes** - Stored in configurable folder (default: `Reviews/`), linked via `source_note` frontmatter
+
+AI-powered knowledge capture for Obsidian. Last updated: 2025-12-09 by MM
 
 ## Project Structure
 
@@ -161,3 +197,10 @@ Every capture automatically logs to `{vault}/.claudsidian/model_performance.json
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
+
+## Active Technologies
+- TypeScript 5.x, Node.js 16+ + obsidian (API), gray-matter (YAML parsing), esbuild (bundling) (002-obsidian-learning-plugin)
+- Obsidian vault files (markdown + JSON in `.claudsidian/`) (002-obsidian-learning-plugin)
+
+## Recent Changes
+- 002-obsidian-learning-plugin: Added TypeScript 5.x, Node.js 16+ + obsidian (API), gray-matter (YAML parsing), esbuild (bundling)

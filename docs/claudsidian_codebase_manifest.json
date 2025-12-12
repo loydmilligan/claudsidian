@@ -1,0 +1,285 @@
+{
+  "project": "claudsidian",
+  "description": "AI-powered knowledge capture CLI for Obsidian",
+  "analysis_date": "2025-12-09",
+  "total_files_analyzed": 42,
+  "summary": {
+    "complete": 40,
+    "partial": 2,
+    "stub": 0
+  },
+  "critical_findings": {
+    "model_performance_tracking": {
+      "status": "PARTIAL",
+      "issue": "ModelPerformanceDB is initialized but add_capture() is ONLY called from compare.py during A/B testing. Regular captures DO NOT record to model_performance.json",
+      "impact": "Normal URL captures don't populate performance database - only model comparison runs do"
+    },
+    "tag_generation_prompts": {
+      "status": "PARTIAL",
+      "issue": "get_tag_generation_prompt() always returns ARTICLE_TAGS regardless of content_type. Content-specific tag prompts (VIDEO_TAGS, REPO_TAGS, etc.) exist but are unused",
+      "impact": "All content types use article tagging rules instead of specialized prompts"
+    },
+    "two_separate_quality_systems": {
+      "ratings_database": {
+        "file": "src/models/ratings.py",
+        "purpose": "User subjective ratings (1-5 stars) from note frontmatter",
+        "populated_by": "claudsidian ratings process command",
+        "status": "COMPLETE"
+      },
+      "performance_database": {
+        "file": "src/models/model_performance.py",
+        "purpose": "Objective quality scores from A/B testing against gold standards",
+        "populated_by": "claudsidian compare run command ONLY",
+        "status": "PARTIAL - not used during normal captures"
+      }
+    }
+  },
+  "feature_systems": {
+    "model_comparison": {
+      "status": "COMPLETE",
+      "files": ["src/cli/commands/compare.py", "src/cli/commands/test_capture.py"],
+      "capabilities": [
+        "A/B testing with two model configurations",
+        "Gold standard comparison from _test_notes/_gold_standards/",
+        "AI-powered quality analysis with 1-5 scoring",
+        "OPUS metric: (quality/5) / cost",
+        "HTML report generation with charts",
+        "Smart cleanup respecting 14-day rating grace period"
+      ]
+    },
+    "user_ratings": {
+      "status": "COMPLETE",
+      "files": ["src/models/ratings.py", "src/cli/commands/ratings.py"],
+      "capabilities": [
+        "1-5 star ratings from note frontmatter (user_rating field)",
+        "Rating processing with duplicate prevention",
+        "Quality reports by model",
+        "Cost tracking with 80/20 split estimate",
+        "Integration with model_performance.json"
+      ]
+    },
+    "content_extraction": {
+      "status": "COMPLETE",
+      "types": {
+        "article": "src/core/extractors/article.py",
+        "video": "src/core/extractors/youtube.py",
+        "repo": "src/core/extractors/github.py",
+        "news": "src/core/extractors/news.py",
+        "walkthrough": "src/core/extractors/walkthrough.py",
+        "printable": "src/core/extractors/printable.py + printable_playwright.py"
+      }
+    },
+    "ai_routing": {
+      "status": "COMPLETE",
+      "files": ["src/core/ai/router.py", "src/core/ai/openrouter.py", "src/core/ai/claude.py"],
+      "capabilities": [
+        "Task-based routing (simple vs complex)",
+        "Exponential backoff with jitter",
+        "Automatic fallback between backends",
+        "Cost tracking with MODEL_PRICING",
+        "Vision AI for screenshots"
+      ]
+    },
+    "inbox_processing": {
+      "status": "COMPLETE",
+      "files": ["src/core/inbox.py", "src/cli/commands/watch.py"],
+      "capabilities": [
+        "File watching with debouncing",
+        "URL extraction from markdown",
+        "Auto-processing and cleanup"
+      ]
+    },
+    "http_server": {
+      "status": "COMPLETE",
+      "files": ["src/server/app.py", "src/server/routes/*.py"],
+      "capabilities": [
+        "FastAPI with CORS",
+        "Capture endpoint for browser extensions",
+        "Queue management API",
+        "Health checks"
+      ]
+    }
+  },
+  "files": [
+    {
+      "file_path": "src/models/ratings.py",
+      "purpose": "User rating system (1-5 stars) stored in ratings.json",
+      "status": "complete",
+      "key_classes": ["NoteRating", "ModelStats", "RatingsDatabase"]
+    },
+    {
+      "file_path": "src/models/model_performance.py",
+      "purpose": "Performance tracking with quality scores and OPUS metric",
+      "status": "partial",
+      "key_classes": ["QualityScores", "CapturePerformance", "ModelStats", "ModelPerformanceDB"],
+      "issue": "Only populated during compare runs, not regular captures"
+    },
+    {
+      "file_path": "src/cli/commands/compare.py",
+      "purpose": "A/B testing and model comparison with HTML reports",
+      "status": "complete",
+      "key_features": ["Gold standard comparison", "OPUS metric", "Quality scoring"]
+    },
+    {
+      "file_path": "src/cli/commands/ratings.py",
+      "purpose": "Rating collection and quality reports",
+      "status": "complete",
+      "commands": ["process", "report", "stats", "list", "performance", "recent"]
+    },
+    {
+      "file_path": "src/core/capture.py",
+      "purpose": "Main capture orchestration",
+      "status": "complete",
+      "key_classes": ["AIUsageMetrics", "CaptureResult", "CaptureService"]
+    },
+    {
+      "file_path": "src/models/note.py",
+      "purpose": "Note models with frontmatter and AI metadata",
+      "status": "complete",
+      "key_classes": ["AICallInfo", "AIMetadata", "Frontmatter", "Note"],
+      "note": "Includes user_rating and rating_processed fields"
+    },
+    {
+      "file_path": "src/core/ai/router.py",
+      "purpose": "AI request routing with retry and fallback",
+      "status": "complete",
+      "key_classes": ["AIResponse", "AIRouter"]
+    },
+    {
+      "file_path": "src/core/ai/openrouter.py",
+      "purpose": "OpenRouter API client",
+      "status": "complete",
+      "key_classes": ["OpenRouterResponse", "OpenRouterClient"]
+    },
+    {
+      "file_path": "src/core/ai/claude.py",
+      "purpose": "Claude direct API client",
+      "status": "complete",
+      "key_classes": ["ClaudeResponse", "ClaudeClient"]
+    },
+    {
+      "file_path": "src/core/ai/vision.py",
+      "purpose": "Vision AI for screenshot analysis",
+      "status": "complete",
+      "key_classes": ["VisionAnalyzer"]
+    },
+    {
+      "file_path": "src/core/ai/prompts.py",
+      "purpose": "AI prompt templates",
+      "status": "partial",
+      "key_classes": ["Prompts"],
+      "issue": "Tag prompts not routed by content type"
+    },
+    {
+      "file_path": "src/models/config.py",
+      "purpose": "Configuration models with model presets",
+      "status": "complete",
+      "key_classes": ["ModelConfig", "FolderConfig", "Configuration"]
+    },
+    {
+      "file_path": "src/cli/commands/capture.py",
+      "purpose": "Main capture CLI command",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/cli/commands/test_capture.py",
+      "purpose": "Test fixture management and batch captures",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/youtube.py",
+      "purpose": "YouTube video extraction with transcripts",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/article.py",
+      "purpose": "Article extraction with readability",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/github.py",
+      "purpose": "GitHub repo extraction",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/news.py",
+      "purpose": "News article extraction",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/walkthrough.py",
+      "purpose": "Tutorial/walkthrough extraction",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/printable.py",
+      "purpose": "3D model extraction (HTTP)",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/extractors/printable_playwright.py",
+      "purpose": "3D model extraction (Playwright+Vision)",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/vault/writer.py",
+      "purpose": "Note file writing with sanitization",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/vault/backlinks.py",
+      "purpose": "Related note discovery by tags",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/queue.py",
+      "purpose": "Persistent capture queue",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/inbox.py",
+      "purpose": "Inbox file watching and processing",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/content_type.py",
+      "purpose": "URL content type detection",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/core/config.py",
+      "purpose": "Configuration I/O",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/utils/url.py",
+      "purpose": "URL parsing utilities",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/server/app.py",
+      "purpose": "FastAPI server setup",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/server/routes/capture.py",
+      "purpose": "Capture API endpoint",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/cli/main.py",
+      "purpose": "CLI entry point and queue commands",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/models/capture.py",
+      "purpose": "Capture request models",
+      "status": "complete"
+    },
+    {
+      "file_path": "src/models/queue.py",
+      "purpose": "Queue item models",
+      "status": "complete"
+    }
+  ]
+}
