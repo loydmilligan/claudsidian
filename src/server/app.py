@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from src.server.routes.capture import router as capture_router
 from src.server.routes.queue import router as queue_router
 from src.server.routes.status import router as status_router
+from src.server.routes.subjects import router as subjects_router
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(capture_router)
     app.include_router(queue_router)
     app.include_router(status_router)
+    app.include_router(subjects_router)
 
     # Version info endpoint
     @app.get("/")

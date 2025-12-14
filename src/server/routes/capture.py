@@ -43,6 +43,7 @@ class CaptureRequestBody(BaseModel):
     model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    research_subject: str | None = None  # If set, capture to SubjectMatter/{subject}/
 
 
 class CaptureResponseBody(BaseModel):
@@ -245,6 +246,7 @@ async def capture_url(request: CaptureRequestBody) -> CaptureResponseBody:
         model_override=request.model,
         temperature_override=request.temperature,
         max_tokens_override=request.max_tokens,
+        research_subject=request.research_subject,
     )
 
     # Execute capture

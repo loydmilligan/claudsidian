@@ -39,6 +39,7 @@ class CaptureRequest(BaseModel):
         model_override: Optional model ID to use instead of config default
         temperature_override: Optional temperature override (0.0-1.0)
         max_tokens_override: Optional max_tokens override
+        research_subject: Optional research subject name (note goes to SubjectMatter/{subject}/)
     """
 
     url: HttpUrl
@@ -49,6 +50,7 @@ class CaptureRequest(BaseModel):
     model_override: Optional[str] = None
     temperature_override: Optional[float] = None
     max_tokens_override: Optional[int] = None
+    research_subject: Optional[str] = None
 
     @field_validator("url")
     @classmethod

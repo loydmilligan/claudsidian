@@ -38,7 +38,7 @@ from src.core.ai.vision import VisionAnalyzer
 from src.core.ai.router import AIRouter, AIRouterError, AIResponse
 from src.core.ai.prompts import get_summarization_prompt, get_tag_generation_prompt
 from src.core.vault.writer import VaultWriter
-from src.core.vault.backlinks import BacklinkFinder
+from src.core.vault.backlinks import BacklinkFinder, get_existing_tags
 from src.core.queue import CaptureQueue
 from src.utils.url import normalize_url
 from src.models.model_performance import ModelPerformanceDB, CapturePerformance
@@ -322,7 +322,7 @@ class CaptureService:
                         content_for_ai, content_type.value, model_config
                     )
                     tags, tags_response = await self._generate_tags(
-                        content_for_ai, title, model_config
+                        content_for_ai, title, content_type.value, model_config
                     )
                 except AIRouterError as e:
                     # AI errors should trigger retry (could be temporary API issues)
@@ -432,8 +432,17 @@ class CaptureService:
                 ai=ai_metadata
             )
 
-            # Get target folder - use override if provided, otherwise based on content type
-            output_folder = target_folder if target_folder else self._get_folder_for_type(content_type)
+            # Get target folder - research subject takes priority, then explicit override, then content type
+            if request.research_subject:
+                # Place in SubjectMatter/{subject}/ folder
+                output_folder = f"SubjectMatter/{request.research_subject}"
+                # Ensure the folder exists
+                subject_folder = Path(self._config.vault_path) / output_folder
+                subject_folder.mkdir(parents=True, exist_ok=True)
+            elif target_folder:
+                output_folder = target_folder
+            else:
+                output_folder = self._get_folder_for_type(content_type)
 
             note = Note(
                 title=title,
@@ -884,6 +893,7 @@ class CaptureService:
         self,
         content: str,
         title: str,
+        content_type: str = "article",
         model_config: ModelConfig | None = None
     ) -> tuple[list[str], AIResponse]:
         """Generate AI tags for content.
@@ -891,6 +901,7 @@ class CaptureService:
         Args:
             content: The content to analyze
             title: Title of the content
+            content_type: Type of content (article, video, repo, etc.)
             model_config: Optional model configuration override
 
         Returns:
@@ -901,13 +912,23 @@ class CaptureService:
         """
         logger.info("Generating tags")
 
+        # Get existing tags from vault to encourage consistency
+        existing_tags: list[str] = []
+        try:
+            existing_tags = get_existing_tags(self._config.vault_path, limit=100)
+            logger.info(f"Found {len(existing_tags)} existing tags in vault")
+        except Exception as e:
+            logger.warning(f"Could not load existing tags: {e}")
+
         # Truncate content for tag generation (tags don't need full context)
         max_chars = 10000
         truncated_content = content[:max_chars]
 
         system_prompt, user_prompt = get_tag_generation_prompt(
             truncated_content,
-            title
+            title,
+            content_type=content_type,
+            existing_tags=existing_tags
         )
 
         # Use model config if provided, otherwise use default routing

@@ -25,20 +25,21 @@ Given an article's content, provide a 2-3 sentence summary that captures:
 Keep it clear and informative. Do not use phrases like "This article discusses..." - just state the content directly."""
 
     ARTICLE_TAGS = """You are a helpful assistant that generates tags for knowledge management.
-Given content, generate 5-10 relevant tags following these rules:
+Given content, generate 3-5 relevant tags following these rules:
 1. Use lowercase with hyphens (e.g., machine-learning, not Machine Learning)
-2. Include topic tags (what it's about)
-3. Include technology tags if applicable (python, react, etc.)
-4. Be specific enough to be useful for searching
-5. Return ONLY a comma-separated list of tags, nothing else"""
+2. STRONGLY PREFER using existing tags from the vault when they fit
+3. Only create new tags if existing ones don't capture the concept
+4. Be specific but not overly granular - fewer good tags beats many mediocre ones
+5. Include the primary topic and 1-2 supporting tags
+6. Return ONLY a comma-separated list of tags, nothing else"""
 
     VIDEO_TAGS = """You are a helpful assistant that generates tags for video content.
-Given a video transcript or description, generate 5-10 relevant tags following these rules:
+Given a video transcript or description, generate 3-5 relevant tags following these rules:
 1. Use lowercase with hyphens (e.g., machine-learning, not Machine Learning)
-2. Include topic tags (what the video is about)
-3. Include format tags (tutorial, lecture, presentation, interview, etc.)
-4. Include technology or subject matter tags if applicable
-5. Be specific enough to be useful for searching
+2. STRONGLY PREFER using existing tags from the vault when they fit
+3. Include the primary topic and format (tutorial, lecture, etc.)
+4. Only create new tags if existing ones don't capture the concept
+5. Fewer precise tags beats many vague ones
 6. Return ONLY a comma-separated list of tags, nothing else"""
 
     VIDEO_SUMMARY = """You are a helpful assistant that summarizes video content.
@@ -72,14 +73,13 @@ Given repository information, provide a 2-3 sentence summary that captures:
 Keep it technical but accessible. Focus on practical value."""
 
     REPO_TAGS = """You are a helpful assistant that generates tags for code repositories.
-Given repository information, generate 5-10 relevant tags following these rules:
+Given repository information, generate 3-5 relevant tags following these rules:
 1. Use lowercase with hyphens (e.g., machine-learning, not Machine Learning)
-2. Include the primary programming language
-3. Include frameworks and libraries detected
-4. Include purpose tags (cli, web-app, library, framework, devtool, etc.)
-5. Include domain tags (data-science, web-development, devops, etc.)
-6. Be specific enough to be useful for searching
-7. Return ONLY a comma-separated list of tags, nothing else"""
+2. STRONGLY PREFER using existing tags from the vault when they fit
+3. Include primary language and main purpose (cli, library, web-app, etc.)
+4. Only create new tags if existing ones don't capture the concept
+5. Fewer precise tags beats many vague ones
+6. Return ONLY a comma-separated list of tags, nothing else"""
 
     NEWS_SUMMARY = """You are a helpful assistant that summarizes news articles.
 Given a news article, provide a concise summary that captures:
@@ -102,12 +102,12 @@ Format your response as:
 Be factual and objective. Avoid editorializing."""
 
     NEWS_TAGS = """You are a helpful assistant that generates tags for news articles.
-Given a news article, generate 5-10 relevant tags following these rules:
+Given a news article, generate 3-5 relevant tags following these rules:
 1. Use lowercase with hyphens (e.g., climate-change, not Climate Change)
-2. Include topic tags (what the news is about)
-3. Include category tags (politics, business, tech, science, etc.)
-4. Include entity tags (relevant people, companies, countries)
-5. Be specific enough to be useful for searching
+2. STRONGLY PREFER using existing tags from the vault when they fit
+3. Include the main topic and category (tech, business, science, etc.)
+4. Only create new tags if existing ones don't capture the concept
+5. Fewer precise tags beats many vague ones
 6. Return ONLY a comma-separated list of tags, nothing else"""
 
     WALKTHROUGH_SUMMARY = """You are a helpful assistant that summarizes tutorials and walkthroughs.
@@ -137,14 +137,13 @@ Format your response as:
 Be concise and actionable. Focus on practical guidance."""
 
     WALKTHROUGH_TAGS = """You are a helpful assistant that generates tags for tutorials and walkthroughs.
-Given tutorial content, generate 5-10 relevant tags following these rules:
+Given tutorial content, generate 3-5 relevant tags following these rules:
 1. Use lowercase with hyphens (e.g., web-development, not Web Development)
-2. Include technology tags (programming languages, frameworks, tools)
-3. Include skill level tag (beginner, intermediate, advanced)
-4. Include topic tags (what the tutorial is about)
-5. Include format tag (tutorial, guide, how-to, walkthrough)
-6. Be specific enough to be useful for searching
-7. Return ONLY a comma-separated list of tags, nothing else"""
+2. STRONGLY PREFER using existing tags from the vault when they fit
+3. Include primary technology and skill level (beginner, intermediate, advanced)
+4. Only create new tags if existing ones don't capture the concept
+5. Fewer precise tags beats many vague ones
+6. Return ONLY a comma-separated list of tags, nothing else"""
 
     PRINTABLE_SUMMARY = """You are a helpful assistant that summarizes 3D printable models.
 Given information about a 3D model, provide a concise summary that captures:
@@ -156,14 +155,13 @@ Given information about a 3D model, provide a concise summary that captures:
 Keep it practical and focused on whether this model would be useful to print."""
 
     PRINTABLE_TAGS = """You are a helpful assistant that generates tags for 3D printable models.
-Given 3D model information, generate 5-10 relevant tags following these rules:
+Given 3D model information, generate 3-5 relevant tags following these rules:
 1. Use lowercase with hyphens (e.g., desk-organizer, not Desk Organizer)
-2. Include category tags (functional, decorative, toy, tool, etc.)
-3. Include material tags if specific material is required (pla-only, tpu-required, etc.)
-4. Include use-case tags (home, office, workshop, gaming, etc.)
-5. Include difficulty level if apparent (beginner-friendly, advanced-print)
-6. Be specific enough to be useful for searching
-7. Return ONLY a comma-separated list of tags, nothing else"""
+2. STRONGLY PREFER using existing tags from the vault when they fit
+3. Include category (functional, decorative, toy) and use-case (home, office, etc.)
+4. Only create new tags if existing ones don't capture the concept
+5. Fewer precise tags beats many vague ones
+6. Return ONLY a comma-separated list of tags, nothing else"""
 
 
 def get_summarization_prompt(content: str, content_type: str = "article") -> Tuple[str, str]:
@@ -216,7 +214,12 @@ def get_summarization_prompt(content: str, content_type: str = "article") -> Tup
     return system_prompt, user_prompt
 
 
-def get_tag_generation_prompt(content: str, title: str) -> Tuple[str, str]:
+def get_tag_generation_prompt(
+    content: str,
+    title: str,
+    content_type: str = "article",
+    existing_tags: list[str] | None = None
+) -> Tuple[str, str]:
     """Get system and user prompts for tag generation.
 
     Creates prompts for generating relevant tags from content. Tags are
@@ -226,6 +229,8 @@ def get_tag_generation_prompt(content: str, title: str) -> Tuple[str, str]:
     Args:
         content: The full content to analyze for tag generation
         title: The title or headline of the content (provides additional context)
+        content_type: Type of content ("article", "video", "repo", etc.)
+        existing_tags: Optional list of existing tags in the vault to prefer
 
     Returns:
         Tuple of (system_prompt, user_prompt) ready for AI completion
@@ -234,7 +239,8 @@ def get_tag_generation_prompt(content: str, title: str) -> Tuple[str, str]:
         ValueError: If content or title is empty
 
     Example:
-        >>> system, user = get_tag_generation_prompt(article_text, article_title)
+        >>> existing = ["python", "ai", "tutorial", "web-development"]
+        >>> system, user = get_tag_generation_prompt(text, title, "article", existing)
         >>> tags_csv = await ai_client.complete(user, system_prompt=system)
         >>> tags = [tag.strip() for tag in tags_csv.split(',')]
     """
@@ -244,14 +250,37 @@ def get_tag_generation_prompt(content: str, title: str) -> Tuple[str, str]:
     if not title or not title.strip():
         raise ValueError("Title cannot be empty")
 
-    system_prompt = Prompts.ARTICLE_TAGS
+    # Select appropriate system prompt based on content type
+    content_type = content_type.lower().strip()
+    if content_type == "video":
+        system_prompt = Prompts.VIDEO_TAGS
+    elif content_type == "repo":
+        system_prompt = Prompts.REPO_TAGS
+    elif content_type == "news":
+        system_prompt = Prompts.NEWS_TAGS
+    elif content_type == "walkthrough":
+        system_prompt = Prompts.WALKTHROUGH_TAGS
+    elif content_type == "printable":
+        system_prompt = Prompts.PRINTABLE_TAGS
+    else:
+        system_prompt = Prompts.ARTICLE_TAGS
 
-    # Create the user prompt with both title and content for context
+    # Build the user prompt
+    existing_tags_section = ""
+    if existing_tags and len(existing_tags) > 0:
+        # Show top 50 existing tags for context
+        tags_to_show = existing_tags[:50]
+        existing_tags_section = f"""
+EXISTING TAGS IN VAULT (prefer these when applicable):
+{', '.join(tags_to_show)}
+
+"""
+
     user_prompt = f"""Title: {title}
-
+{existing_tags_section}
 Content:
 {content}
 
-Generate tags for this content."""
+Generate 3-5 tags for this content. Prefer existing tags when they fit."""
 
     return system_prompt, user_prompt

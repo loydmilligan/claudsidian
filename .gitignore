@@ -11,6 +11,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!android/lib/
 lib64/
 parts/
 sdist/
