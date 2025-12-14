@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from src.models.config import load_config, config_exists
+from src.core.config import load_config, config_exists
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["subjects"])
